@@ -21,49 +21,49 @@ const defaultSettings = {
   padding: 12, // Keep property for type compatibility but set fixed default
 
   // Font Weights
-  originalFontWeight: '700',
-  phoneticFontWeight: '500',
-  translationFontWeight: '500',
+  originalFontWeight: "700",
+  phoneticFontWeight: "500",
+  translationFontWeight: "500",
 
   // Animation
-  animationType: 'slide' as 'fade' | 'slide' | 'scale' | 'none',
+  animationType: "slide" as "fade" | "slide" | "scale" | "none",
   animationDuration: 300, // ms
 
   // Lyrics Styling
   lineBackgroundOpacity: 60,
-  textColor: '#ffffff',
-  activeColor: '#1db954',
-  phoneticColor: '#cccccc',
-  translationColor: '#aaaaaa',
-  backgroundColor: '#000000',
+  textColor: "#ffffff",
+  activeColor: "#1db954",
+  phoneticColor: "#cccccc",
+  translationColor: "#aaaaaa",
+  backgroundColor: "#000000",
   borderRadius: 12,
   lineGap: 6,
-  textAlign: 'center' as 'left' | 'center' | 'right',
+  textAlign: "center" as "left" | "center" | "right",
   isLocked: true,
-  language: 'ko' as 'ko' | 'en',
+  language: "ko" as "ko" | "en",
 
   // Text Effects
   textStroke: false,
   textStrokeSize: 1,
-  textStrokeMode: 'outer' as 'inner' | 'outer',
-  textShadow: 'none' as 'none' | 'soft' | 'hard',
+  textStrokeMode: "outer" as "inner" | "outer",
+  textShadow: "none" as "none" | "soft" | "hard",
 
   // Track Info (곡 정보) Styling
   trackInfoFontSize: 13,
-  trackInfoFontWeight: '600',
-  trackInfoColor: '#ffffff',
-  trackInfoBgColor: '#000000',
+  trackInfoFontWeight: "600",
+  trackInfoColor: "#ffffff",
+  trackInfoBgColor: "#000000",
   trackInfoBgOpacity: 60,
   trackInfoBorderRadius: 12,
 
   // Font Families
-  originalFontFamily: '',
-  phoneticFontFamily: '',
-  translationFontFamily: '',
+  originalFontFamily: "",
+  phoneticFontFamily: "",
+  translationFontFamily: "",
 };
 
 // Settings Tab Categories
-type SettingsTab = 'general' | 'display' | 'style' | 'animation';
+type SettingsTab = "general" | "display" | "style" | "animation";
 
 export type OverlaySettings = typeof defaultSettings;
 export { defaultSettings };
@@ -249,32 +249,40 @@ const strings = {
     systemDefault: "System Default",
     // Colors Section
     lyricsColorSection: "Lyrics Colors",
-  }
+  },
 };
 
 function App() {
   // Check if this is the settings window
-  const isSettingsWindow = window.location.search.includes('settings=true');
+  const isSettingsWindow = window.location.search.includes("settings=true");
 
   const [track, setTrack] = useState<TrackInfo | null>(null);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [progress, setProgress] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [settings, setSettings] = useState<OverlaySettings>(() => {
-    const saved = localStorage.getItem('overlay-settings-v3');
-    return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
+    const saved = localStorage.getItem("overlay-settings-v3");
+    return saved
+      ? { ...defaultSettings, ...JSON.parse(saved) }
+      : defaultSettings;
   });
 
-  const t = strings[settings.language || 'ko'];
+  const t = strings[settings.language || "ko"];
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Update modal state
-  type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'upToDate' | 'error';
+  type UpdateStatus =
+    | "idle"
+    | "checking"
+    | "available"
+    | "downloading"
+    | "upToDate"
+    | "error";
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
-  const [updateVersion, setUpdateVersion] = useState('');
-  const [updateError, setUpdateError] = useState('');
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+  const [updateVersion, setUpdateVersion] = useState("");
+  const [updateError, setUpdateError] = useState("");
   const updateRef = useRef<Awaited<ReturnType<typeof check>> | null>(null);
 
   // Unlock interaction state
@@ -282,18 +290,18 @@ function App() {
 
   // Save settings to localStorage
   useEffect(() => {
-    localStorage.setItem('overlay-settings-v3', JSON.stringify(settings));
+    localStorage.setItem("overlay-settings-v3", JSON.stringify(settings));
   }, [settings]);
 
   // Listen for settings changes from other windows
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'overlay-settings-v3' && e.newValue) {
+      if (e.key === "overlay-settings-v3" && e.newValue) {
         setSettings({ ...defaultSettings, ...JSON.parse(e.newValue) });
       }
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   // Find active lyric line index
@@ -326,17 +334,20 @@ function App() {
       }
     });
 
-    const unlistenProgress = listen<ProgressEvent>("progress-update", (event) => {
-      const payload = event.payload;
-      if (payload.progressData) {
-        setProgress(payload.progressData.position);
-        setIsPlaying(payload.progressData.isPlaying);
+    const unlistenProgress = listen<ProgressEvent>(
+      "progress-update",
+      (event) => {
+        const payload = event.payload;
+        if (payload.progressData) {
+          setProgress(payload.progressData.position);
+          setIsPlaying(payload.progressData.isPlaying);
+        }
       }
-    });
+    );
 
     // Listen for lock state changes from Tray
     const unlistenLockUpdate = listen<boolean>("lock-state-update", (event) => {
-      setSettings(prev => ({ ...prev, isLocked: event.payload }));
+      setSettings((prev) => ({ ...prev, isLocked: event.payload }));
     });
 
     // Listen for hover state from backend (for transparency)
@@ -347,7 +358,9 @@ function App() {
     // Initial setup: Sync lock state with backend
     if (!isSettingsWindow) {
       // Default is locked
-      invoke('set_lock_state', { locked: settings.isLocked }).catch(console.error);
+      invoke("set_lock_state", { locked: settings.isLocked }).catch(
+        console.error
+      );
     }
 
     return () => {
@@ -361,81 +374,91 @@ function App() {
   // Sync lock state when settings change
   useEffect(() => {
     if (!isSettingsWindow) {
-      invoke('set_lock_state', { locked: settings.isLocked }).catch(console.error);
+      invoke("set_lock_state", { locked: settings.isLocked }).catch(
+        console.error
+      );
       // Also set ignore events manually based on lock state to allow dragging in unlocked mode immediately
       if (!settings.isLocked) {
-        invoke('set_ignore_cursor_events', { ignore: false }).catch(console.error);
+        invoke("set_ignore_cursor_events", { ignore: false }).catch(
+          console.error
+        );
       }
     }
   }, [settings.isLocked, isSettingsWindow]);
 
   // Drag functionality - only when unlocked
-  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
-    if (settings.isLocked) return;
+  const handleMouseDown = useCallback(
+    async (e: React.MouseEvent) => {
+      if (settings.isLocked) return;
 
-    const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, .control-group')) return;
+      const target = e.target as HTMLElement;
+      if (target.closest("button, input, select, .control-group")) return;
 
-    try {
-      await invoke('start_drag');
-    } catch (err) {
-      console.error('Failed to start dragging:', err);
-    }
-  }, [settings.isLocked]);
+      try {
+        await invoke("start_drag");
+      } catch (err) {
+        console.error("Failed to start dragging:", err);
+      }
+    },
+    [settings.isLocked]
+  );
 
   // Open settings window
   const openSettings = useCallback(async () => {
     try {
-      await invoke('open_settings_window');
+      await invoke("open_settings_window");
     } catch (err) {
-      console.error('Failed to open settings:', err);
+      console.error("Failed to open settings:", err);
     }
   }, []);
 
   // Toggle lock state
   const toggleLock = useCallback(() => {
-    setSettings(prev => ({ ...prev, isLocked: !prev.isLocked }));
+    setSettings((prev) => ({ ...prev, isLocked: !prev.isLocked }));
   }, []);
 
   // Check for updates
   const checkForAppUpdates = useCallback(async (manual = false) => {
     if (manual) {
-      setUpdateStatus('checking');
+      setUpdateStatus("checking");
       setUpdateModalOpen(true);
-      setUpdateError('');
+      setUpdateError("");
     }
     try {
       const update = await check();
       if (update?.available) {
         updateRef.current = update;
         setUpdateVersion(update.version);
-        setUpdateStatus('available');
+        setUpdateStatus("available");
         if (!manual) setUpdateModalOpen(true); // Auto-open if update found
       } else if (manual) {
-        setUpdateStatus('upToDate');
+        setUpdateStatus("upToDate");
       }
     } catch (e: any) {
       console.error(e);
       const errMsg = e?.message || String(e);
       // Treat "no release" as up-to-date (common during dev)
-      if (errMsg.includes('Could not fetch') || errMsg.includes('404')) {
-        if (manual) setUpdateStatus('upToDate');
+      if (errMsg.includes("Could not fetch") || errMsg.includes("404")) {
+        if (manual) {
+          setUpdateError("업데이트 서버에 연결할 수 없습니다 (404)");
+          setUpdateStatus("error");
+        }
       } else if (manual) {
         setUpdateError(errMsg);
-        setUpdateStatus('error');
+        setUpdateStatus("error");
       }
     }
   }, []);
 
   const installUpdate = useCallback(async () => {
     if (!updateRef.current) return;
-    setUpdateStatus('downloading');
+    setUpdateStatus("downloading");
     try {
       await updateRef.current.downloadAndInstall();
       await relaunch();
     } catch (e: any) {
       setUpdateError(e?.message || String(e));
-      setUpdateStatus('error');
+      setUpdateStatus("error");
     }
   }, []);
 
@@ -449,7 +472,7 @@ function App() {
     const hasPronText = line.pronText && line.pronText !== line.text;
     const hasTransText = line.transText && line.transText !== line.text;
     return {
-      main: line.text || '',
+      main: line.text || "",
       phonetic: hasPronText ? line.pronText : null,
       translation: hasTransText ? line.transText : null,
     };
@@ -466,37 +489,62 @@ function App() {
         />
         {/* Update Modal */}
         {updateModalOpen && (
-          <div className="update-modal-overlay" onClick={() => updateStatus !== 'downloading' && setUpdateModalOpen(false)}>
+          <div
+            className="update-modal-overlay"
+            onClick={() =>
+              updateStatus !== "downloading" && setUpdateModalOpen(false)
+            }
+          >
             <div className="update-modal" onClick={(e) => e.stopPropagation()}>
               <div className="update-modal-icon">
-                {updateStatus === 'checking' && <span className="spinner">⏳</span>}
-                {updateStatus === 'available' && <span>🎉</span>}
-                {updateStatus === 'upToDate' && <span>✅</span>}
-                {updateStatus === 'downloading' && <span className="spinner">⬇️</span>}
-                {updateStatus === 'error' && <span>❌</span>}
+                {updateStatus === "checking" && (
+                  <span className="spinner">⏳</span>
+                )}
+                {updateStatus === "available" && <span>🎉</span>}
+                {updateStatus === "upToDate" && <span>✅</span>}
+                {updateStatus === "downloading" && (
+                  <span className="spinner">⬇️</span>
+                )}
+                {updateStatus === "error" && <span>❌</span>}
               </div>
               <div className="update-modal-title">
-                {updateStatus === 'checking' && t.checking}
-                {updateStatus === 'available' && t.updateAvailable.replace('{version}', updateVersion)}
-                {updateStatus === 'upToDate' && t.upToDate}
-                {updateStatus === 'downloading' && t.downloading}
-                {updateStatus === 'error' && t.errorParams}
+                {updateStatus === "checking" && t.checking}
+                {updateStatus === "available" &&
+                  t.updateAvailable.replace("{version}", updateVersion)}
+                {updateStatus === "upToDate" && t.upToDate}
+                {updateStatus === "downloading" && t.downloading}
+                {updateStatus === "error" && t.errorParams}
               </div>
-              {updateStatus === 'available' && (
+              {updateStatus === "available" && (
                 <div className="update-modal-subtitle">{t.installUpdate}</div>
               )}
-              {updateStatus === 'error' && (
+              {updateStatus === "error" && (
                 <div className="update-modal-error">{updateError}</div>
               )}
               <div className="update-modal-actions">
-                {updateStatus === 'available' && (
+                {updateStatus === "available" && (
                   <>
-                    <button className="update-btn cancel" onClick={() => setUpdateModalOpen(false)}>{t.cancel}</button>
-                    <button className="update-btn primary" onClick={installUpdate}>{t.install}</button>
+                    <button
+                      className="update-btn cancel"
+                      onClick={() => setUpdateModalOpen(false)}
+                    >
+                      {t.cancel}
+                    </button>
+                    <button
+                      className="update-btn primary"
+                      onClick={installUpdate}
+                    >
+                      {t.install}
+                    </button>
                   </>
                 )}
-                {(updateStatus === 'upToDate' || updateStatus === 'error') && (
-                  <button className="update-btn primary" onClick={() => setUpdateModalOpen(false)}>{t.close}</button>
+                {(updateStatus === "upToDate" || updateStatus === "error") && (
+                  <button
+                    className="update-btn primary"
+                    onClick={() => setUpdateModalOpen(false)}
+                  >
+                    {t.close}
+                  </button>
                 )}
               </div>
             </div>
@@ -510,97 +558,125 @@ function App() {
   const hexToRgba = (hex: string, opacity: number) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     if (result) {
-      return `rgba(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}, ${opacity})`;
+      return `rgba(${parseInt(result[1], 16)}, ${parseInt(
+        result[2],
+        16
+      )}, ${parseInt(result[3], 16)}, ${opacity})`;
     }
     return hex;
   };
 
   const display = activeLine ? getDisplayText(activeLine) : null;
 
-
   // Alignment classes
-  const alignClass = settings.textAlign === 'left' ? 'align-left' :
-    settings.textAlign === 'right' ? 'align-right' : 'align-center';
+  const alignClass =
+    settings.textAlign === "left"
+      ? "align-left"
+      : settings.textAlign === "right"
+      ? "align-right"
+      : "align-center";
 
   // Listen for unlock progress from backend
   useEffect(() => {
-    const unlistenUnlockProgress = listen<number>("unlock-progress", (event) => {
-      setUnlockProgress(event.payload);
-    });
+    const unlistenUnlockProgress = listen<number>(
+      "unlock-progress",
+      (event) => {
+        setUnlockProgress(event.payload);
+      }
+    );
 
     return () => {
-      unlistenUnlockProgress.then(fn => fn());
-    }
+      unlistenUnlockProgress.then((fn) => fn());
+    };
   }, []);
 
   return (
     <div
       ref={containerRef}
-      className={`overlay-container ${!isPlaying ? 'paused' : ''} ${alignClass} ${settings.isLocked ? 'locked' : 'unlocked'}`}
+      className={`overlay-container ${
+        !isPlaying ? "paused" : ""
+      } ${alignClass} ${settings.isLocked ? "locked" : "unlocked"}`}
       onMouseDown={handleMouseDown}
-      style={{
-        opacity: isHovering && settings.isLocked ? 0.2 : 1, // Dim on hover only when locked
-        transition: 'opacity 0.3s ease', // Smooth transition
-        '--original-size': `${settings.originalFontSize}px`,
-        '--phonetic-size': `${settings.phoneticFontSize}px`,
-        '--translation-size': `${settings.translationFontSize}px`,
-        '--original-weight': settings.originalFontWeight,
-        '--phonetic-weight': settings.phoneticFontWeight,
-        '--translation-weight': settings.translationFontWeight,
-        '--text-color': settings.textColor,
-        '--active-color': settings.activeColor,
-        '--phonetic-color': settings.phoneticColor,
-        '--translation-color': settings.translationColor,
-        '--line-bg': hexToRgba(settings.backgroundColor, settings.lineBackgroundOpacity / 100),
-        '--track-info-size': `${settings.trackInfoFontSize}px`,
-        '--track-info-weight': settings.trackInfoFontWeight,
-        '--track-info-color': settings.trackInfoColor,
-        '--track-info-bg': hexToRgba(settings.trackInfoBgColor, settings.trackInfoBgOpacity / 100),
-        '--track-info-radius': `${settings.trackInfoBorderRadius}px`,
-        '--border-radius': `${settings.borderRadius}px`,
-        '--padding': `${settings.padding}px`,
-        '--line-gap': `${settings.lineGap}px`,
-        '--anim-duration': `${settings.animationDuration}ms`,
-        '--text-shadow': settings.textShadow === 'soft' ? '0 2px 4px rgba(0,0,0,0.5)' :
-          settings.textShadow === 'hard' ? '1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000' : 'none',
-        '--text-stroke': settings.textStroke ? `${settings.textStrokeSize}px black` : 'none',
-        '--text-stroke-mode': settings.textStrokeMode === 'inner' ? 'fill stroke' : 'stroke fill',
-        '--original-font': settings.originalFontFamily || 'inherit',
-        '--phonetic-font': settings.phoneticFontFamily || 'inherit',
-        '--translation-font': settings.translationFontFamily || 'inherit',
-      } as React.CSSProperties}
+      style={
+        {
+          opacity: isHovering && settings.isLocked ? 0.2 : 1, // Dim on hover only when locked
+          transition: "opacity 0.3s ease", // Smooth transition
+          "--original-size": `${settings.originalFontSize}px`,
+          "--phonetic-size": `${settings.phoneticFontSize}px`,
+          "--translation-size": `${settings.translationFontSize}px`,
+          "--original-weight": settings.originalFontWeight,
+          "--phonetic-weight": settings.phoneticFontWeight,
+          "--translation-weight": settings.translationFontWeight,
+          "--text-color": settings.textColor,
+          "--active-color": settings.activeColor,
+          "--phonetic-color": settings.phoneticColor,
+          "--translation-color": settings.translationColor,
+          "--line-bg": hexToRgba(
+            settings.backgroundColor,
+            settings.lineBackgroundOpacity / 100
+          ),
+          "--track-info-size": `${settings.trackInfoFontSize}px`,
+          "--track-info-weight": settings.trackInfoFontWeight,
+          "--track-info-color": settings.trackInfoColor,
+          "--track-info-bg": hexToRgba(
+            settings.trackInfoBgColor,
+            settings.trackInfoBgOpacity / 100
+          ),
+          "--track-info-radius": `${settings.trackInfoBorderRadius}px`,
+          "--border-radius": `${settings.borderRadius}px`,
+          "--padding": `${settings.padding}px`,
+          "--line-gap": `${settings.lineGap}px`,
+          "--anim-duration": `${settings.animationDuration}ms`,
+          "--text-shadow":
+            settings.textShadow === "soft"
+              ? "0 2px 4px rgba(0,0,0,0.5)"
+              : settings.textShadow === "hard"
+              ? "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
+              : "none",
+          "--text-stroke": settings.textStroke
+            ? `${settings.textStrokeSize}px black`
+            : "none",
+          "--text-stroke-mode":
+            settings.textStrokeMode === "inner" ? "fill stroke" : "stroke fill",
+          "--original-font": settings.originalFontFamily || "inherit",
+          "--phonetic-font": settings.phoneticFontFamily || "inherit",
+          "--translation-font": settings.translationFontFamily || "inherit",
+        } as React.CSSProperties
+      }
     >
       <div
         className="trigger-zone"
         title="Hover for controls"
-      /* Interactive logic handled by Rust backend polling */
+        /* Interactive logic handled by Rust backend polling */
       ></div>
       {/* Global Unlock Progress Gauge (Centered) */}
       {settings.isLocked && unlockProgress > 0 && (
         <div
           style={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            pointerEvents: 'none',
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            pointerEvents: "none",
             zIndex: 9999,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '8px'
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "8px",
           }}
         >
-          <div style={{
-            position: 'relative',
-            width: '60px',
-            height: '60px',
-          }}>
+          <div
+            style={{
+              position: "relative",
+              width: "60px",
+              height: "60px",
+            }}
+          >
             <svg
               width="60"
               height="60"
               viewBox="0 0 60 60"
-              style={{ transform: 'rotate(-90deg)' }}
+              style={{ transform: "rotate(-90deg)" }}
             >
               <circle
                 cx="30"
@@ -618,52 +694,59 @@ function App() {
                 strokeWidth="6"
                 fill="transparent"
                 strokeDasharray={`${2 * Math.PI * 26}`}
-                strokeDashoffset={`${2 * Math.PI * 26 * (1 - unlockProgress / 100)}`}
+                strokeDashoffset={`${
+                  2 * Math.PI * 26 * (1 - unlockProgress / 100)
+                }`}
                 strokeLinecap="round"
                 style={{
-                  transition: 'stroke-dashoffset 0.1s linear'
+                  transition: "stroke-dashoffset 0.1s linear",
                 }}
               />
             </svg>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '24px'
-            }}>
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "24px",
+              }}
+            >
               🔓
             </div>
           </div>
-          <div style={{
-            color: 'white',
-            fontSize: '12px',
-            textShadow: '0 2px 4px black',
-            background: 'rgba(0,0,0,0.5)',
-            padding: '4px 8px',
-            borderRadius: '4px',
-            whiteSpace: 'nowrap'
-          }}>
+          <div
+            style={{
+              color: "white",
+              fontSize: "12px",
+              textShadow: "0 2px 4px black",
+              background: "rgba(0,0,0,0.5)",
+              padding: "4px 8px",
+              borderRadius: "4px",
+              whiteSpace: "nowrap",
+            }}
+          >
             {t.holdToUnlock}
           </div>
         </div>
       )}
 
       {/* Control Buttons Group (Visible on Hover) */}
-      <div
-        className="control-group"
-      >
+      <div className="control-group">
         {/* Lock/Unlock Toggle */}
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: "relative" }}>
           <button
             className="icon-btn lock-toggle"
             onClick={() => !settings.isLocked && toggleLock()}
             title={settings.isLocked ? "" : t.lockTooltip || "Lock"}
-            style={{ position: 'relative', opacity: settings.isLocked ? 0.5 : 1 }}
+            style={{
+              position: "relative",
+              opacity: settings.isLocked ? 0.5 : 1,
+            }}
           >
             {settings.isLocked ? "🔒" : "🔓"}
           </button>
@@ -671,57 +754,57 @@ function App() {
 
         {/* Settings Button (Only visible when unlocked) */}
         {!settings.isLocked && (
-          <button className="icon-btn settings-toggle" onClick={openSettings} title="Settings">
+          <button
+            className="icon-btn settings-toggle"
+            onClick={openSettings}
+            title="Settings"
+          >
             ⚙️
           </button>
         )}
       </div>
 
       {/* Track Info */}
-      {
-        settings.showTrackInfo && track && (
-          <div className="track-info-line">
-            {track.albumArt && (
-              <img src={track.albumArt} alt="" className="album-art" />
-            )}
-            <span className="track-text">
-              {track.artist} - {track.title}
-            </span>
-          </div>
-        )
-      }
+      {settings.showTrackInfo && track && (
+        <div className="track-info-line">
+          {track.albumArt && (
+            <img src={track.albumArt} alt="" className="album-art" />
+          )}
+          <span className="track-text">
+            {track.artist} - {track.title}
+          </span>
+        </div>
+      )}
 
       {/* Lyrics - Only active line */}
       {/* Lyrics - Keyed by text/time to trigger animation */}
-      {
-        display ? (
-          <div
-            className={`lyrics-box anim-${settings.animationType}`}
-            key={activeLine?.startTime || 'empty'}
-          >
-            {/* Original */}
-            {settings.showOriginal && display.main && (
-              <div className="lyric-line original">{display.main}</div>
-            )}
-            {/* Phonetic */}
-            {settings.showPhonetic && display.phonetic && (
-              <div className="lyric-line phonetic">{display.phonetic}</div>
-            )}
-            {/* Translation */}
-            {settings.showTranslation && display.translation && (
-              <div className="lyric-line translation">{display.translation}</div>
-            )}
+      {display ? (
+        <div
+          className={`lyrics-box anim-${settings.animationType}`}
+          key={activeLine?.startTime || "empty"}
+        >
+          {/* Original */}
+          {settings.showOriginal && display.main && (
+            <div className="lyric-line original">{display.main}</div>
+          )}
+          {/* Phonetic */}
+          {settings.showPhonetic && display.phonetic && (
+            <div className="lyric-line phonetic">{display.phonetic}</div>
+          )}
+          {/* Translation */}
+          {settings.showTranslation && display.translation && (
+            <div className="lyric-line translation">{display.translation}</div>
+          )}
+        </div>
+      ) : (
+        !track && (
+          <div className="waiting-indicator">
+            <div className="waiting-dot"></div>
+            <span>{t.waiting}</span>
           </div>
-        ) : (
-          !track && (
-            <div className="waiting-indicator">
-              <div className="waiting-dot"></div>
-              <span>{t.waiting}</span>
-            </div>
-          )
         )
-      }
-    </div >
+      )}
+    </div>
   );
 }
 
@@ -730,7 +813,7 @@ function FontPicker({
   fonts,
   value,
   onChange,
-  placeholder
+  placeholder,
 }: {
   fonts: string[];
   value: string;
@@ -738,23 +821,28 @@ function FontPicker({
   placeholder: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
   const filteredFonts = useMemo(() => {
     if (!search) return fonts.slice(0, 100); // Limit for performance
-    return fonts.filter(f => f.toLowerCase().includes(search.toLowerCase())).slice(0, 50);
+    return fonts
+      .filter((f) => f.toLowerCase().includes(search.toLowerCase()))
+      .slice(0, 50);
   }, [fonts, search]);
 
   // Close on click outside
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setIsOpen(false);
       }
     };
-    if (isOpen) document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    if (isOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, [isOpen]);
 
   return (
@@ -762,7 +850,7 @@ function FontPicker({
       <button
         className="font-picker-trigger"
         onClick={() => setIsOpen(!isOpen)}
-        style={{ fontFamily: value || 'inherit' }}
+        style={{ fontFamily: value || "inherit" }}
       >
         <span className="font-picker-value">{value || placeholder}</span>
         <span className="font-picker-arrow">▾</span>
@@ -779,17 +867,27 @@ function FontPicker({
           />
           <div className="font-picker-list">
             <div
-              className={`font-picker-item ${!value ? 'selected' : ''}`}
-              onClick={() => { onChange(''); setIsOpen(false); setSearch(''); }}
+              className={`font-picker-item ${!value ? "selected" : ""}`}
+              onClick={() => {
+                onChange("");
+                setIsOpen(false);
+                setSearch("");
+              }}
             >
               {placeholder}
             </div>
-            {filteredFonts.map(font => (
+            {filteredFonts.map((font) => (
               <div
                 key={font}
-                className={`font-picker-item ${value === font ? 'selected' : ''}`}
+                className={`font-picker-item ${
+                  value === font ? "selected" : ""
+                }`}
                 style={{ fontFamily: font }}
-                onClick={() => { onChange(font); setIsOpen(false); setSearch(''); }}
+                onClick={() => {
+                  onChange(font);
+                  setIsOpen(false);
+                  setSearch("");
+                }}
               >
                 {font}
               </div>
@@ -805,23 +903,25 @@ function FontPicker({
 function SettingsPanel({
   settings,
   onSettingsChange,
-  onCheckUpdates
+  onCheckUpdates,
 }: {
   settings: OverlaySettings;
   onSettingsChange: (s: OverlaySettings) => void;
   onCheckUpdates: () => void;
 }) {
-  const t = strings[settings.language || 'ko'];
+  const t = strings[settings.language || "ko"];
   const [autoStart, setAutoStart] = useState(false);
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
 
   useEffect(() => {
-    isEnabled().then(setAutoStart).catch(e => console.error("Failed to check autostart:", e));
+    isEnabled()
+      .then(setAutoStart)
+      .catch((e) => console.error("Failed to check autostart:", e));
     // Load system fonts
-    invoke<string[]>('get_system_fonts')
-      .then(fonts => setSystemFonts(fonts))
-      .catch(e => console.error("Failed to load fonts:", e));
+    invoke<string[]>("get_system_fonts")
+      .then((fonts) => setSystemFonts(fonts))
+      .catch((e) => console.error("Failed to load fonts:", e));
   }, []);
 
   const toggleAutoStart = async (checked: boolean) => {
@@ -837,45 +937,56 @@ function SettingsPanel({
     }
   };
 
-  const updateSetting = <K extends keyof OverlaySettings>(key: K, value: OverlaySettings[K]) => {
+  const updateSetting = <K extends keyof OverlaySettings>(
+    key: K,
+    value: OverlaySettings[K]
+  ) => {
     onSettingsChange({ ...settings, [key]: value });
   };
 
   const toggleLanguage = () => {
-    updateSetting('language', settings.language === 'en' ? 'ko' : 'en');
+    updateSetting("language", settings.language === "en" ? "ko" : "en");
   };
 
   return (
-    <div className={`settings-panel ios-style ${!settings.isLocked ? 'open' : ''}`}>
+    <div
+      className={`settings-panel ios-style ${!settings.isLocked ? "open" : ""}`}
+    >
       <div className="settings-header">
         <h2>{t.settingsTitle}</h2>
         <button className="lang-toggle-btn" onClick={toggleLanguage}>
-          {settings.language === 'en' ? 'US' : 'KO'}
+          {settings.language === "en" ? "US" : "KO"}
         </button>
       </div>
 
       {/* Tab Navigation */}
-      <div className="ios-segmented-control" style={{ margin: '0 20px 16px', width: 'auto' }}>
-        {(['general', 'display', 'style', 'animation'] as SettingsTab[]).map(tab => (
-          <button
-            key={tab}
-            className={activeTab === tab ? 'active' : ''}
-            onClick={() => setActiveTab(tab)}
-            style={{ padding: '6px 0', fontSize: '13px' }}
-          >
-            {
-              tab === 'general' ? t.tabGeneral :
-                tab === 'display' ? t.tabDisplay :
-                  tab === 'style' ? t.tabStyle : t.tabAnim
-            }
-          </button>
-        ))}
+      <div
+        className="ios-segmented-control"
+        style={{ margin: "0 20px 16px", width: "auto" }}
+      >
+        {(["general", "display", "style", "animation"] as SettingsTab[]).map(
+          (tab) => (
+            <button
+              key={tab}
+              className={activeTab === tab ? "active" : ""}
+              onClick={() => setActiveTab(tab)}
+              style={{ padding: "6px 0", fontSize: "13px" }}
+            >
+              {tab === "general"
+                ? t.tabGeneral
+                : tab === "display"
+                ? t.tabDisplay
+                : tab === "style"
+                ? t.tabStyle
+                : t.tabAnim}
+            </button>
+          )
+        )}
       </div>
 
       <div className="settings-content">
-
         {/* ================= GENERAL TAB ================= */}
-        {activeTab === 'general' && (
+        {activeTab === "general" && (
           <section className="ios-section">
             <div className="section-header">{t.tabGeneral}</div>
             <div className="ios-list">
@@ -895,7 +1006,11 @@ function SettingsPanel({
                 <button
                   className="ios-button destructive"
                   onClick={() => {
-                    if (confirm(t.resetConfirm)) onSettingsChange({ ...defaultSettings, language: settings.language });
+                    if (confirm(t.resetConfirm))
+                      onSettingsChange({
+                        ...defaultSettings,
+                        language: settings.language,
+                      });
                   }}
                 >
                   {t.reset}
@@ -905,7 +1020,11 @@ function SettingsPanel({
               <div className="ios-item column">
                 <button
                   className="ios-button"
-                  style={{ background: '#1c1c1e', color: '#0a84ff', fontWeight: 600 }}
+                  style={{
+                    background: "#1c1c1e",
+                    color: "#0a84ff",
+                    fontWeight: 600,
+                  }}
                   onClick={onCheckUpdates}
                 >
                   {t.checkForUpdates}
@@ -916,7 +1035,7 @@ function SettingsPanel({
         )}
 
         {/* ================= DISPLAY TAB ================= */}
-        {activeTab === 'display' && (
+        {activeTab === "display" && (
           <>
             <section className="ios-section">
               <div className="section-header">{t.showSection}</div>
@@ -924,28 +1043,52 @@ function SettingsPanel({
                 <label className="ios-item">
                   <span>{t.originalLyrics}</span>
                   <div className="toggle-wrapper">
-                    <input type="checkbox" checked={settings.showOriginal} onChange={(e) => updateSetting('showOriginal', e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={settings.showOriginal}
+                      onChange={(e) =>
+                        updateSetting("showOriginal", e.target.checked)
+                      }
+                    />
                     <span className="toggle-slider"></span>
                   </div>
                 </label>
                 <label className="ios-item">
                   <span>{t.phoneticLyrics}</span>
                   <div className="toggle-wrapper">
-                    <input type="checkbox" checked={settings.showPhonetic} onChange={(e) => updateSetting('showPhonetic', e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={settings.showPhonetic}
+                      onChange={(e) =>
+                        updateSetting("showPhonetic", e.target.checked)
+                      }
+                    />
                     <span className="toggle-slider"></span>
                   </div>
                 </label>
                 <label className="ios-item">
                   <span>{t.translationLyrics}</span>
                   <div className="toggle-wrapper">
-                    <input type="checkbox" checked={settings.showTranslation} onChange={(e) => updateSetting('showTranslation', e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={settings.showTranslation}
+                      onChange={(e) =>
+                        updateSetting("showTranslation", e.target.checked)
+                      }
+                    />
                     <span className="toggle-slider"></span>
                   </div>
                 </label>
                 <label className="ios-item">
                   <span>{t.trackInfo}</span>
                   <div className="toggle-wrapper">
-                    <input type="checkbox" checked={settings.showTrackInfo} onChange={(e) => updateSetting('showTrackInfo', e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={settings.showTrackInfo}
+                      onChange={(e) =>
+                        updateSetting("showTrackInfo", e.target.checked)
+                      }
+                    />
                     <span className="toggle-slider"></span>
                   </div>
                 </label>
@@ -961,9 +1104,26 @@ function SettingsPanel({
                     <span>{t.alignmentSection}</span>
                   </div>
                   <div className="ios-segmented-control">
-                    <button className={settings.textAlign === 'left' ? 'active' : ''} onClick={() => updateSetting('textAlign', 'left')}>{t.alignLeft}</button>
-                    <button className={settings.textAlign === 'center' ? 'active' : ''} onClick={() => updateSetting('textAlign', 'center')}>{t.alignCenter}</button>
-                    <button className={settings.textAlign === 'right' ? 'active' : ''} onClick={() => updateSetting('textAlign', 'right')}>{t.alignRight}</button>
+                    <button
+                      className={settings.textAlign === "left" ? "active" : ""}
+                      onClick={() => updateSetting("textAlign", "left")}
+                    >
+                      {t.alignLeft}
+                    </button>
+                    <button
+                      className={
+                        settings.textAlign === "center" ? "active" : ""
+                      }
+                      onClick={() => updateSetting("textAlign", "center")}
+                    >
+                      {t.alignCenter}
+                    </button>
+                    <button
+                      className={settings.textAlign === "right" ? "active" : ""}
+                      onClick={() => updateSetting("textAlign", "right")}
+                    >
+                      {t.alignRight}
+                    </button>
                   </div>
                 </div>
                 {/* Line Gap */}
@@ -972,7 +1132,15 @@ function SettingsPanel({
                     <span>{t.lineGap}</span>
                     <span className="value-text">{settings.lineGap}px</span>
                   </div>
-                  <input type="range" min="0" max="40" value={settings.lineGap} onChange={(e) => updateSetting('lineGap', parseInt(e.target.value))} />
+                  <input
+                    type="range"
+                    min="0"
+                    max="40"
+                    value={settings.lineGap}
+                    onChange={(e) =>
+                      updateSetting("lineGap", parseInt(e.target.value))
+                    }
+                  />
                 </div>
               </div>
             </section>
@@ -980,7 +1148,7 @@ function SettingsPanel({
         )}
 
         {/* ================= STYLE TAB ================= */}
-        {activeTab === 'style' && (
+        {activeTab === "style" && (
           <>
             {/* Typography */}
             <section className="ios-section">
@@ -990,12 +1158,35 @@ function SettingsPanel({
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.originalStyle}</span>
-                    <span className="value-text">{settings.originalFontSize}px / {settings.originalFontWeight}</span>
+                    <span className="value-text">
+                      {settings.originalFontSize}px /{" "}
+                      {settings.originalFontWeight}
+                    </span>
                   </div>
                   <div className="slider-group">
-                    <input type="range" min="12" max="64" value={settings.originalFontSize} onChange={(e) => updateSetting('originalFontSize', parseInt(e.target.value))} />
-                    <select className="ios-select" value={settings.originalFontWeight} onChange={(e) => updateSetting('originalFontWeight', e.target.value)}>
-                      <option value="300">Light</option><option value="400">Regular</option><option value="700">Bold</option><option value="900">Heavy</option>
+                    <input
+                      type="range"
+                      min="12"
+                      max="64"
+                      value={settings.originalFontSize}
+                      onChange={(e) =>
+                        updateSetting(
+                          "originalFontSize",
+                          parseInt(e.target.value)
+                        )
+                      }
+                    />
+                    <select
+                      className="ios-select"
+                      value={settings.originalFontWeight}
+                      onChange={(e) =>
+                        updateSetting("originalFontWeight", e.target.value)
+                      }
+                    >
+                      <option value="300">Light</option>
+                      <option value="400">Regular</option>
+                      <option value="700">Bold</option>
+                      <option value="900">Heavy</option>
                     </select>
                   </div>
                   <div className="item-row" style={{ marginTop: 8 }}>
@@ -1004,7 +1195,7 @@ function SettingsPanel({
                   <FontPicker
                     fonts={systemFonts}
                     value={settings.originalFontFamily}
-                    onChange={(f) => updateSetting('originalFontFamily', f)}
+                    onChange={(f) => updateSetting("originalFontFamily", f)}
                     placeholder={t.systemDefault}
                   />
                 </div>
@@ -1012,12 +1203,35 @@ function SettingsPanel({
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.phoneticStyle}</span>
-                    <span className="value-text">{settings.phoneticFontSize}px / {settings.phoneticFontWeight}</span>
+                    <span className="value-text">
+                      {settings.phoneticFontSize}px /{" "}
+                      {settings.phoneticFontWeight}
+                    </span>
                   </div>
                   <div className="slider-group">
-                    <input type="range" min="10" max="40" value={settings.phoneticFontSize} onChange={(e) => updateSetting('phoneticFontSize', parseInt(e.target.value))} />
-                    <select className="ios-select" value={settings.phoneticFontWeight} onChange={(e) => updateSetting('phoneticFontWeight', e.target.value)}>
-                      <option value="300">Light</option><option value="400">Regular</option><option value="500">Medium</option><option value="700">Bold</option>
+                    <input
+                      type="range"
+                      min="10"
+                      max="40"
+                      value={settings.phoneticFontSize}
+                      onChange={(e) =>
+                        updateSetting(
+                          "phoneticFontSize",
+                          parseInt(e.target.value)
+                        )
+                      }
+                    />
+                    <select
+                      className="ios-select"
+                      value={settings.phoneticFontWeight}
+                      onChange={(e) =>
+                        updateSetting("phoneticFontWeight", e.target.value)
+                      }
+                    >
+                      <option value="300">Light</option>
+                      <option value="400">Regular</option>
+                      <option value="500">Medium</option>
+                      <option value="700">Bold</option>
                     </select>
                   </div>
                   <div className="item-row" style={{ marginTop: 8 }}>
@@ -1026,7 +1240,7 @@ function SettingsPanel({
                   <FontPicker
                     fonts={systemFonts}
                     value={settings.phoneticFontFamily}
-                    onChange={(f) => updateSetting('phoneticFontFamily', f)}
+                    onChange={(f) => updateSetting("phoneticFontFamily", f)}
                     placeholder={t.systemDefault}
                   />
                 </div>
@@ -1034,12 +1248,35 @@ function SettingsPanel({
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.transStyle}</span>
-                    <span className="value-text">{settings.translationFontSize}px / {settings.translationFontWeight}</span>
+                    <span className="value-text">
+                      {settings.translationFontSize}px /{" "}
+                      {settings.translationFontWeight}
+                    </span>
                   </div>
                   <div className="slider-group">
-                    <input type="range" min="10" max="40" value={settings.translationFontSize} onChange={(e) => updateSetting('translationFontSize', parseInt(e.target.value))} />
-                    <select className="ios-select" value={settings.translationFontWeight} onChange={(e) => updateSetting('translationFontWeight', e.target.value)}>
-                      <option value="300">Light</option><option value="400">Regular</option><option value="500">Medium</option><option value="700">Bold</option>
+                    <input
+                      type="range"
+                      min="10"
+                      max="40"
+                      value={settings.translationFontSize}
+                      onChange={(e) =>
+                        updateSetting(
+                          "translationFontSize",
+                          parseInt(e.target.value)
+                        )
+                      }
+                    />
+                    <select
+                      className="ios-select"
+                      value={settings.translationFontWeight}
+                      onChange={(e) =>
+                        updateSetting("translationFontWeight", e.target.value)
+                      }
+                    >
+                      <option value="300">Light</option>
+                      <option value="400">Regular</option>
+                      <option value="500">Medium</option>
+                      <option value="700">Bold</option>
                     </select>
                   </div>
                   <div className="item-row" style={{ marginTop: 8 }}>
@@ -1048,7 +1285,7 @@ function SettingsPanel({
                   <FontPicker
                     fonts={systemFonts}
                     value={settings.translationFontFamily}
-                    onChange={(f) => updateSetting('translationFontFamily', f)}
+                    onChange={(f) => updateSetting("translationFontFamily", f)}
                     placeholder={t.systemDefault}
                   />
                 </div>
@@ -1056,12 +1293,33 @@ function SettingsPanel({
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.songInfoSection}</span>
-                    <span className="value-text">{settings.trackInfoFontSize}px</span>
+                    <span className="value-text">
+                      {settings.trackInfoFontSize}px
+                    </span>
                   </div>
                   <div className="slider-group">
-                    <input type="range" min="10" max="32" value={settings.trackInfoFontSize} onChange={(e) => updateSetting('trackInfoFontSize', parseInt(e.target.value))} />
-                    <select className="ios-select" value={settings.trackInfoFontWeight} onChange={(e) => updateSetting('trackInfoFontWeight', e.target.value)}>
-                      <option value="400">Regular</option><option value="600">Semi-Bold</option><option value="700">Bold</option>
+                    <input
+                      type="range"
+                      min="10"
+                      max="32"
+                      value={settings.trackInfoFontSize}
+                      onChange={(e) =>
+                        updateSetting(
+                          "trackInfoFontSize",
+                          parseInt(e.target.value)
+                        )
+                      }
+                    />
+                    <select
+                      className="ios-select"
+                      value={settings.trackInfoFontWeight}
+                      onChange={(e) =>
+                        updateSetting("trackInfoFontWeight", e.target.value)
+                      }
+                    >
+                      <option value="400">Regular</option>
+                      <option value="600">Semi-Bold</option>
+                      <option value="700">Bold</option>
                     </select>
                   </div>
                 </div>
@@ -1074,7 +1332,13 @@ function SettingsPanel({
                 <label className="ios-item">
                   <span>{t.textStroke}</span>
                   <div className="toggle-wrapper">
-                    <input type="checkbox" checked={settings.textStroke} onChange={(e) => updateSetting('textStroke', e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={settings.textStroke}
+                      onChange={(e) =>
+                        updateSetting("textStroke", e.target.checked)
+                      }
+                    />
                     <span className="toggle-slider"></span>
                   </div>
                 </label>
@@ -1083,25 +1347,75 @@ function SettingsPanel({
                     <div className="ios-item column">
                       <div className="item-row">
                         <span>{t.strokeSize}</span>
-                        <span className="value-text">{settings.textStrokeSize}px</span>
+                        <span className="value-text">
+                          {settings.textStrokeSize}px
+                        </span>
                       </div>
-                      <input type="range" min="1" max="5" value={settings.textStrokeSize} onChange={(e) => updateSetting('textStrokeSize', parseInt(e.target.value))} />
+                      <input
+                        type="range"
+                        min="1"
+                        max="5"
+                        value={settings.textStrokeSize}
+                        onChange={(e) =>
+                          updateSetting(
+                            "textStrokeSize",
+                            parseInt(e.target.value)
+                          )
+                        }
+                      />
                     </div>
                     <div className="ios-item column">
-                      <div className="item-row"><span>{t.strokeMode}</span></div>
+                      <div className="item-row">
+                        <span>{t.strokeMode}</span>
+                      </div>
                       <div className="ios-segmented-control">
-                        <button className={settings.textStrokeMode === 'outer' ? 'active' : ''} onClick={() => updateSetting('textStrokeMode', 'outer')}>{t.strokeOuter}</button>
-                        <button className={settings.textStrokeMode === 'inner' ? 'active' : ''} onClick={() => updateSetting('textStrokeMode', 'inner')}>{t.strokeInner}</button>
+                        <button
+                          className={
+                            settings.textStrokeMode === "outer" ? "active" : ""
+                          }
+                          onClick={() =>
+                            updateSetting("textStrokeMode", "outer")
+                          }
+                        >
+                          {t.strokeOuter}
+                        </button>
+                        <button
+                          className={
+                            settings.textStrokeMode === "inner" ? "active" : ""
+                          }
+                          onClick={() =>
+                            updateSetting("textStrokeMode", "inner")
+                          }
+                        >
+                          {t.strokeInner}
+                        </button>
                       </div>
                     </div>
                   </>
                 )}
                 <div className="ios-item column">
-                  <div className="item-row"><span>{t.textShadow}</span></div>
+                  <div className="item-row">
+                    <span>{t.textShadow}</span>
+                  </div>
                   <div className="ios-segmented-control">
-                    <button className={settings.textShadow === 'none' ? 'active' : ''} onClick={() => updateSetting('textShadow', 'none')}>{t.shadowNone}</button>
-                    <button className={settings.textShadow === 'soft' ? 'active' : ''} onClick={() => updateSetting('textShadow', 'soft')}>{t.shadowSoft}</button>
-                    <button className={settings.textShadow === 'hard' ? 'active' : ''} onClick={() => updateSetting('textShadow', 'hard')}>{t.shadowHard}</button>
+                    <button
+                      className={settings.textShadow === "none" ? "active" : ""}
+                      onClick={() => updateSetting("textShadow", "none")}
+                    >
+                      {t.shadowNone}
+                    </button>
+                    <button
+                      className={settings.textShadow === "soft" ? "active" : ""}
+                      onClick={() => updateSetting("textShadow", "soft")}
+                    >
+                      {t.shadowSoft}
+                    </button>
+                    <button
+                      className={settings.textShadow === "hard" ? "active" : ""}
+                      onClick={() => updateSetting("textShadow", "hard")}
+                    >
+                      {t.shadowHard}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1114,30 +1428,74 @@ function SettingsPanel({
                 <div className="ios-item">
                   <span>{t.songInfoColor}</span>
                   <div className="color-wrapper">
-                    <input type="color" value={settings.trackInfoColor} onChange={(e) => updateSetting('trackInfoColor', e.target.value)} />
-                    <div className="color-preview" style={{ background: settings.trackInfoColor }}></div>
+                    <input
+                      type="color"
+                      value={settings.trackInfoColor}
+                      onChange={(e) =>
+                        updateSetting("trackInfoColor", e.target.value)
+                      }
+                    />
+                    <div
+                      className="color-preview"
+                      style={{ background: settings.trackInfoColor }}
+                    ></div>
                   </div>
                 </div>
                 <div className="ios-item">
                   <span>{t.songInfoBgColor}</span>
                   <div className="color-wrapper">
-                    <input type="color" value={settings.trackInfoBgColor} onChange={(e) => updateSetting('trackInfoBgColor', e.target.value)} />
-                    <div className="color-preview" style={{ background: settings.trackInfoBgColor }}></div>
+                    <input
+                      type="color"
+                      value={settings.trackInfoBgColor}
+                      onChange={(e) =>
+                        updateSetting("trackInfoBgColor", e.target.value)
+                      }
+                    />
+                    <div
+                      className="color-preview"
+                      style={{ background: settings.trackInfoBgColor }}
+                    ></div>
                   </div>
                 </div>
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.songInfoBg}</span>
-                    <span className="value-text">{settings.trackInfoBgOpacity}%</span>
+                    <span className="value-text">
+                      {settings.trackInfoBgOpacity}%
+                    </span>
                   </div>
-                  <input type="range" min="0" max="100" value={settings.trackInfoBgOpacity} onChange={(e) => updateSetting('trackInfoBgOpacity', parseInt(e.target.value))} />
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={settings.trackInfoBgOpacity}
+                    onChange={(e) =>
+                      updateSetting(
+                        "trackInfoBgOpacity",
+                        parseInt(e.target.value)
+                      )
+                    }
+                  />
                 </div>
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.songInfoRadius}</span>
-                    <span className="value-text">{settings.trackInfoBorderRadius}px</span>
+                    <span className="value-text">
+                      {settings.trackInfoBorderRadius}px
+                    </span>
                   </div>
-                  <input type="range" min="0" max="30" value={settings.trackInfoBorderRadius} onChange={(e) => updateSetting('trackInfoBorderRadius', parseInt(e.target.value))} />
+                  <input
+                    type="range"
+                    min="0"
+                    max="30"
+                    value={settings.trackInfoBorderRadius}
+                    onChange={(e) =>
+                      updateSetting(
+                        "trackInfoBorderRadius",
+                        parseInt(e.target.value)
+                      )
+                    }
+                  />
                 </div>
               </div>
             </section>
@@ -1149,44 +1507,103 @@ function SettingsPanel({
                 <div className="ios-item">
                   <span>{t.originalColor}</span>
                   <div className="color-wrapper">
-                    <input type="color" value={settings.activeColor} onChange={(e) => updateSetting('activeColor', e.target.value)} />
-                    <div className="color-preview" style={{ background: settings.activeColor }}></div>
+                    <input
+                      type="color"
+                      value={settings.activeColor}
+                      onChange={(e) =>
+                        updateSetting("activeColor", e.target.value)
+                      }
+                    />
+                    <div
+                      className="color-preview"
+                      style={{ background: settings.activeColor }}
+                    ></div>
                   </div>
                 </div>
                 <div className="ios-item">
                   <span>{t.phoneticColor}</span>
                   <div className="color-wrapper">
-                    <input type="color" value={settings.phoneticColor} onChange={(e) => updateSetting('phoneticColor', e.target.value)} />
-                    <div className="color-preview" style={{ background: settings.phoneticColor }}></div>
+                    <input
+                      type="color"
+                      value={settings.phoneticColor}
+                      onChange={(e) =>
+                        updateSetting("phoneticColor", e.target.value)
+                      }
+                    />
+                    <div
+                      className="color-preview"
+                      style={{ background: settings.phoneticColor }}
+                    ></div>
                   </div>
                 </div>
                 <div className="ios-item">
                   <span>{t.transColor}</span>
                   <div className="color-wrapper">
-                    <input type="color" value={settings.translationColor} onChange={(e) => updateSetting('translationColor', e.target.value)} />
-                    <div className="color-preview" style={{ background: settings.translationColor }}></div>
+                    <input
+                      type="color"
+                      value={settings.translationColor}
+                      onChange={(e) =>
+                        updateSetting("translationColor", e.target.value)
+                      }
+                    />
+                    <div
+                      className="color-preview"
+                      style={{ background: settings.translationColor }}
+                    ></div>
                   </div>
                 </div>
                 <div className="ios-item">
                   <span>{t.bgColor}</span>
                   <div className="color-wrapper">
-                    <input type="color" value={settings.backgroundColor} onChange={(e) => updateSetting('backgroundColor', e.target.value)} />
-                    <div className="color-preview" style={{ background: settings.backgroundColor }}></div>
+                    <input
+                      type="color"
+                      value={settings.backgroundColor}
+                      onChange={(e) =>
+                        updateSetting("backgroundColor", e.target.value)
+                      }
+                    />
+                    <div
+                      className="color-preview"
+                      style={{ background: settings.backgroundColor }}
+                    ></div>
                   </div>
                 </div>
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.bgOpacity}</span>
-                    <span className="value-text">{settings.lineBackgroundOpacity}%</span>
+                    <span className="value-text">
+                      {settings.lineBackgroundOpacity}%
+                    </span>
                   </div>
-                  <input type="range" min="0" max="100" value={settings.lineBackgroundOpacity} onChange={(e) => updateSetting('lineBackgroundOpacity', parseInt(e.target.value))} />
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={settings.lineBackgroundOpacity}
+                    onChange={(e) =>
+                      updateSetting(
+                        "lineBackgroundOpacity",
+                        parseInt(e.target.value)
+                      )
+                    }
+                  />
                 </div>
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.radius}</span>
-                    <span className="value-text">{settings.borderRadius}px</span>
+                    <span className="value-text">
+                      {settings.borderRadius}px
+                    </span>
                   </div>
-                  <input type="range" min="0" max="30" value={settings.borderRadius} onChange={(e) => updateSetting('borderRadius', parseInt(e.target.value))} />
+                  <input
+                    type="range"
+                    min="0"
+                    max="30"
+                    value={settings.borderRadius}
+                    onChange={(e) =>
+                      updateSetting("borderRadius", parseInt(e.target.value))
+                    }
+                  />
                 </div>
               </div>
             </section>
@@ -1194,7 +1611,7 @@ function SettingsPanel({
         )}
 
         {/* ================= ANIMATION TAB ================= */}
-        {activeTab === 'animation' && (
+        {activeTab === "animation" && (
           <section className="ios-section">
             <div className="section-header">{t.animSection}</div>
             <div className="ios-list">
@@ -1203,35 +1620,52 @@ function SettingsPanel({
                   <span>{t.animType}</span>
                 </div>
                 <div className="ios-segmented-control">
-                  {(['fade', 'slide', 'scale', 'none'] as const).map(type => (
+                  {(["fade", "slide", "scale", "none"] as const).map((type) => (
                     <button
                       key={type}
-                      className={settings.animationType === type ? 'active' : ''}
-                      onClick={() => updateSetting('animationType', type)}
+                      className={
+                        settings.animationType === type ? "active" : ""
+                      }
+                      onClick={() => updateSetting("animationType", type)}
                     >
-                      {t[('anim' + type.charAt(0).toUpperCase() + type.slice(1)) as keyof typeof t]}
+                      {
+                        t[
+                          ("anim" +
+                            type.charAt(0).toUpperCase() +
+                            type.slice(1)) as keyof typeof t
+                        ]
+                      }
                     </button>
                   ))}
                 </div>
               </div>
 
-              {settings.animationType !== 'none' && (
+              {settings.animationType !== "none" && (
                 <div className="ios-item column">
                   <div className="item-row">
                     <span>{t.animDuration}</span>
-                    <span className="value-text">{settings.animationDuration}ms</span>
+                    <span className="value-text">
+                      {settings.animationDuration}ms
+                    </span>
                   </div>
                   <input
-                    type="range" min="100" max="1000" step="50"
+                    type="range"
+                    min="100"
+                    max="1000"
+                    step="50"
                     value={settings.animationDuration}
-                    onChange={(e) => updateSetting('animationDuration', parseInt(e.target.value))}
+                    onChange={(e) =>
+                      updateSetting(
+                        "animationDuration",
+                        parseInt(e.target.value)
+                      )
+                    }
                   />
                 </div>
               )}
             </div>
           </section>
         )}
-
       </div>
     </div>
   );
