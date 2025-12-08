@@ -26,6 +26,7 @@ tokio = { version = "1", features = ["full"] }
 axum = "0.7"
 tower-http = { version = "0.5", features = ["cors"] }
 tauri-plugin-autostart = "2.5.1"
+tauri-plugin-updater = "2.9.0"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi"] }
