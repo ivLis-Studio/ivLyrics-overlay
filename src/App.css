@@ -284,7 +284,7 @@ body,
     color: var(--active-color, #1db954);
     background: var(--line-bg, rgba(0, 0, 0, 0.6));
     padding: 4px 12px;
-    border-radius: 12px;
+    border-radius: var(--border-radius, 12px);
     backdrop-filter: blur(4px);
     width: fit-content;
     margin: 2px 0;
@@ -300,7 +300,7 @@ body,
     color: var(--phonetic-color, #cccccc);
     background: var(--line-bg, rgba(0, 0, 0, 0.6));
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--border-radius, 8px);
     backdrop-filter: blur(4px);
     text-shadow: var(--text-shadow, none);
     -webkit-text-stroke: var(--text-stroke, none);
@@ -316,7 +316,7 @@ body,
     color: var(--translation-color, #aaaaaa);
     background: var(--line-bg, rgba(0, 0, 0, 0.6));
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--border-radius, 8px);
     backdrop-filter: blur(4px);
     text-shadow: var(--text-shadow, none);
     -webkit-text-stroke: var(--text-stroke, none);
@@ -630,4 +630,120 @@ input[type="range"]::-webkit-slider-thumb {
 /* Ensure SVG doesn't block interactions */
 .lock-toggle svg {
     pointer-events: none;
+}
+
+/* ============================================
+   Update Modal - Premium iOS Style
+   ============================================ */
+.update-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20000;
+    animation: fadeIn 0.2s ease;
+    pointer-events: auto;
+}
+
+.update-modal {
+    background: #1c1c1e;
+    border-radius: 16px;
+    padding: 32px 28px 24px;
+    min-width: 300px;
+    max-width: 340px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.update-modal-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    line-height: 1;
+}
+
+.update-modal-icon .spinner {
+    display: inline-block;
+    animation: spin 1.5s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.update-modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: -0.3px;
+}
+
+.update-modal-subtitle {
+    font-size: 14px;
+    color: #8e8e93;
+    margin-bottom: 20px;
+    line-height: 1.4;
+}
+
+.update-modal-error {
+    font-size: 13px;
+    color: #ff453a;
+    background: rgba(255, 69, 58, 0.1);
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin: 12px 0 20px;
+    word-break: break-all;
+    text-align: left;
+    max-height: 100px;
+    overflow-y: auto;
+}
+
+.update-modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.update-btn {
+    flex: 1;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.update-btn.cancel {
+    background: #2c2c2e;
+    color: #fff;
+}
+
+.update-btn.cancel:hover {
+    background: #3a3a3c;
+}
+
+.update-btn.primary {
+    background: #0a84ff;
+    color: #fff;
+}
+
+.update-btn.primary:hover {
+    background: #0070e0;
+}
+
+.update-btn.primary:active {
+    transform: scale(0.98);
 }

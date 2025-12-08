@@ -187,14 +187,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build()) // Updater Init
+        .plugin(tauri_plugin_window_state::Builder::default().build()) // Window State Persistence
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .manage(lock_state.clone()) // Manage properly in Tauri state
         .setup(move |app| {
             // Setup Tray Icon
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let reset_pos_i = MenuItem::with_id(app, "reset_pos", "Reset Position", true, None::<&str>)?; // Add Reset Position
             let toggle_lock_i = MenuItem::with_id(app, "toggle_lock", "Lock/Unlock Toggle", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_lock_i, &settings_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_lock_i, &settings_i, &reset_pos_i, &quit_i])?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -203,6 +205,13 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "quit" => app.exit(0),
+                        "reset_pos" => {
+                             if let Some(window) = app.get_webview_window("main") {
+                                 let _ = window.set_position(PhysicalPosition::new(100, 100));
+                                 let _ = window.show();
+                                 let _ = window.set_focus();
+                             }
+                        },
                         "settings" => {
                             if let Some(settings_window) = app.get_webview_window("settings") {
                                 settings_window.show().unwrap();

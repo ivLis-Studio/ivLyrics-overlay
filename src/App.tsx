@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 import type { TrackInfo, LyricLine, LyricsEvent, ProgressEvent } from "./types";
 
@@ -94,6 +96,13 @@ const strings = {
     waiting: "가사 대기 중...",
     lockTooltip: "잠그기",
     holdToUnlock: "마우스를 2초간 올려두면 잠금해제됩니다",
+    checkForUpdates: "업데이트 확인",
+    upToDate: "최신 버전입니다.",
+    checking: "확인 중...",
+    updateAvailable: "새로운 버전({version})이 있습니다!",
+    installUpdate: "설치 후 재시작하시겠습니까?",
+    errorParams: "오류",
+    downloading: "다운로드 중...",
 
     // New Strings
     textStyleSection: "텍스트 스타일",
@@ -120,6 +129,10 @@ const strings = {
     animScale: "확대/축소",
     animNone: "없음",
     ms: "ms",
+    // Modal
+    cancel: "취소",
+    install: "설치",
+    close: "닫기",
   },
   en: {
     // Tabs
@@ -160,6 +173,13 @@ const strings = {
     waiting: "Waiting for lyrics...",
     lockTooltip: "Lock",
     holdToUnlock: "Hold for 2s to Unlock",
+    checkForUpdates: "Check for Updates",
+    upToDate: "You are on the latest version.",
+    checking: "Checking...",
+    updateAvailable: "New version ({version}) available!",
+    installUpdate: "Install and restart?",
+    errorParams: "Error",
+    downloading: "Downloading...",
 
     // New Strings
     textStyleSection: "TEXT STYLES",
@@ -186,6 +206,10 @@ const strings = {
     animScale: "Scale",
     animNone: "None",
     ms: "ms",
+    // Modal
+    cancel: "Cancel",
+    install: "Install",
+    close: "Close",
   }
 };
 
@@ -202,7 +226,17 @@ function App() {
     return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
   });
 
+  const t = strings[settings.language || 'ko'];
+
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Update modal state
+  type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'upToDate' | 'error';
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
+  const [updateVersion, setUpdateVersion] = useState('');
+  const [updateError, setUpdateError] = useState('');
+  const updateRef = useRef<Awaited<ReturnType<typeof check>> | null>(null);
 
   // Unlock interaction state
   const [unlockProgress, setUnlockProgress] = useState(0);
@@ -317,6 +351,53 @@ function App() {
     setSettings(prev => ({ ...prev, isLocked: !prev.isLocked }));
   }, []);
 
+  // Check for updates
+  const checkForAppUpdates = useCallback(async (manual = false) => {
+    if (manual) {
+      setUpdateStatus('checking');
+      setUpdateModalOpen(true);
+      setUpdateError('');
+    }
+    try {
+      const update = await check();
+      if (update?.available) {
+        updateRef.current = update;
+        setUpdateVersion(update.version);
+        setUpdateStatus('available');
+        if (!manual) setUpdateModalOpen(true); // Auto-open if update found
+      } else if (manual) {
+        setUpdateStatus('upToDate');
+      }
+    } catch (e: any) {
+      console.error(e);
+      const errMsg = e?.message || String(e);
+      // Treat "no release" as up-to-date (common during dev)
+      if (errMsg.includes('Could not fetch') || errMsg.includes('404')) {
+        if (manual) setUpdateStatus('upToDate');
+      } else if (manual) {
+        setUpdateError(errMsg);
+        setUpdateStatus('error');
+      }
+    }
+  }, []);
+
+  const installUpdate = useCallback(async () => {
+    if (!updateRef.current) return;
+    setUpdateStatus('downloading');
+    try {
+      await updateRef.current.downloadAndInstall();
+      await relaunch();
+    } catch (e: any) {
+      setUpdateError(e?.message || String(e));
+      setUpdateStatus('error');
+    }
+  }, []);
+
+  // Auto check on mount
+  useEffect(() => {
+    checkForAppUpdates(false);
+  }, []);
+
   // Get display text
   const getDisplayText = (line: LyricLine) => {
     const hasPronText = line.pronText && line.pronText !== line.text;
@@ -330,7 +411,53 @@ function App() {
 
   // If this is the settings window, render settings UI
   if (isSettingsWindow) {
-    return <SettingsPanel settings={settings} onSettingsChange={setSettings} />;
+    return (
+      <>
+        <SettingsPanel
+          settings={settings}
+          onSettingsChange={setSettings}
+          onCheckUpdates={() => checkForAppUpdates(true)}
+        />
+        {/* Update Modal */}
+        {updateModalOpen && (
+          <div className="update-modal-overlay" onClick={() => updateStatus !== 'downloading' && setUpdateModalOpen(false)}>
+            <div className="update-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="update-modal-icon">
+                {updateStatus === 'checking' && <span className="spinner">⏳</span>}
+                {updateStatus === 'available' && <span>🎉</span>}
+                {updateStatus === 'upToDate' && <span>✅</span>}
+                {updateStatus === 'downloading' && <span className="spinner">⬇️</span>}
+                {updateStatus === 'error' && <span>❌</span>}
+              </div>
+              <div className="update-modal-title">
+                {updateStatus === 'checking' && t.checking}
+                {updateStatus === 'available' && t.updateAvailable.replace('{version}', updateVersion)}
+                {updateStatus === 'upToDate' && t.upToDate}
+                {updateStatus === 'downloading' && t.downloading}
+                {updateStatus === 'error' && t.errorParams}
+              </div>
+              {updateStatus === 'available' && (
+                <div className="update-modal-subtitle">{t.installUpdate}</div>
+              )}
+              {updateStatus === 'error' && (
+                <div className="update-modal-error">{updateError}</div>
+              )}
+              <div className="update-modal-actions">
+                {updateStatus === 'available' && (
+                  <>
+                    <button className="update-btn cancel" onClick={() => setUpdateModalOpen(false)}>{t.cancel}</button>
+                    <button className="update-btn primary" onClick={installUpdate}>{t.install}</button>
+                  </>
+                )}
+                {(updateStatus === 'upToDate' || updateStatus === 'error') && (
+                  <button className="update-btn primary" onClick={() => setUpdateModalOpen(false)}>{t.close}</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
   }
 
   // Convert hex to rgba
@@ -343,7 +470,7 @@ function App() {
   };
 
   const display = activeLine ? getDisplayText(activeLine) : null;
-  const t = strings[settings.language || 'ko'];
+
 
   // Alignment classes
   const alignClass = settings.textAlign === 'left' ? 'align-left' :
@@ -535,10 +662,12 @@ function App() {
 // Settings Panel Component
 function SettingsPanel({
   settings,
-  onSettingsChange
+  onSettingsChange,
+  onCheckUpdates
 }: {
   settings: OverlaySettings;
   onSettingsChange: (s: OverlaySettings) => void;
+  onCheckUpdates: () => void;
 }) {
   const t = strings[settings.language || 'ko'];
   const [autoStart, setAutoStart] = useState(false);
@@ -623,6 +752,16 @@ function SettingsPanel({
                   }}
                 >
                   {t.reset}
+                </button>
+              </div>
+
+              <div className="ios-item column">
+                <button
+                  className="ios-button"
+                  style={{ background: '#1c1c1e', color: '#0a84ff', fontWeight: 600 }}
+                  onClick={onCheckUpdates}
+                >
+                  {t.checkForUpdates}
                 </button>
               </div>
             </div>
