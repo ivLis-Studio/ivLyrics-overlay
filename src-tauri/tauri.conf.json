@@ -35,7 +35,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwNEU4NEZCMERDQjQ4QkYKUldTL1NNc04rNFJPZ05LcWE5YVE0K3cwOFlXV1JaM09jbzlybWVEdWo0eFZ1bE9ZcStPZkNHekYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2MDI1NjVGMTQwNTExNDcKUldSSEVRVVVYMVlDUm1PRkhuMHFtajEzM0VsYWg0bm56ZWN5eG5UdDNROWo5SzJ4YitPbzBZTVEK",
       "endpoints": [
         "https://github.com/ivLis-Studio/lyrics-plus-overlay/releases/latest/download/latest.json"
       ]
