@@ -263,6 +263,7 @@ pub fn run() {
 
             // macOS Specific Configuration
             #[cfg(target_os = "macos")]
+            #[allow(deprecated)]
             {
                 use tauri::ActivationPolicy;
                 app.set_activation_policy(ActivationPolicy::Accessory);
@@ -311,14 +312,6 @@ pub fn run() {
             let loop_lock_state = lock_state.clone();
             let loop_app_handle = app_handle.clone();
 
-            // Start Mouse Polling Thread
-            let loop_lock_state = lock_state.clone();
-            let loop_app_handle = app_handle.clone();
-
-            // Start Mouse Polling Thread
-            let loop_lock_state = lock_state.clone();
-            let loop_app_handle = app_handle.clone();
-
             std::thread::spawn(move || {
                 let mut was_hovering = false;
                 
@@ -326,7 +319,7 @@ pub fn run() {
                 let mut last_mouse_x = 0;
                 let mut last_mouse_y = 0;
                 let mut idle_ticks = 0;
-                let max_idle_ticks = 30; // 30 * 100ms = 3 seconds
+                let _max_idle_ticks = 30; // 30 * 100ms = 3 seconds
 
                 loop {
                     std::thread::sleep(Duration::from_millis(100)); // Poll every 100ms
@@ -382,6 +375,7 @@ pub fn run() {
                         use cocoa::appkit::{NSEvent, NSWindow};
 
                         if let Some(window) = loop_app_handle.get_webview_window("main") {
+                             #[allow(deprecated)]
                              unsafe {
                                 let mouse_loc = NSEvent::mouseLocation(nil); 
                                 let ns_window: id = window.ns_window().unwrap() as id;
