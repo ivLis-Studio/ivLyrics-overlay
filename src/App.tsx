@@ -70,6 +70,13 @@ const defaultSettings = {
   hideWhenPaused: false,
   showNextTrack: true,
   nextTrackSeconds: 15,
+
+  // Element Order (곡정보, 원어, 발음, 번역 순서)
+  elementOrder: ["trackInfo", "original", "phonetic", "translation"] as string[],
+
+  // Unlock Timing (seconds)
+  unlockWaitTime: 1.2, // 대기 시간 (초)
+  unlockHoldTime: 3.0, // 홀드 시간 (초)
 };
 
 // Settings Tab Categories
@@ -182,6 +189,18 @@ const strings = {
     nextTrackSeconds: "다음 곡 표시 시간",
     nextTrackLabel: "다음 곡",
     seconds: "초",
+    // Element Order
+    elementOrderSection: "요소 순서",
+    elementTrackInfo: "곡 정보",
+    elementOriginal: "원어",
+    elementPhonetic: "발음",
+    elementTranslation: "번역",
+    moveUp: "↑",
+    moveDown: "↓",
+    // Unlock Timing
+    unlockTimingSection: "잠금해제 시간",
+    unlockWaitTime: "대기 시간",
+    unlockHoldTime: "홀드 시간",
   },
   en: {
     // Tabs
@@ -285,6 +304,18 @@ const strings = {
     nextTrackSeconds: "Next track display time",
     nextTrackLabel: "Next",
     seconds: "sec",
+    // Element Order
+    elementOrderSection: "Element Order",
+    elementTrackInfo: "Track Info",
+    elementOriginal: "Original",
+    elementPhonetic: "Phonetic",
+    elementTranslation: "Translation",
+    moveUp: "↑",
+    moveDown: "↓",
+    // Unlock Timing
+    unlockTimingSection: "Unlock Timing",
+    unlockWaitTime: "Wait Time",
+    unlockHoldTime: "Hold Time",
   },
 };
 
@@ -429,6 +460,16 @@ function App() {
       }
     }
   }, [settings.isLocked, isSettingsWindow]);
+
+  // Sync unlock timing when settings change
+  useEffect(() => {
+    if (!isSettingsWindow) {
+      invoke("set_unlock_timing", {
+        waitTime: settings.unlockWaitTime,
+        holdTime: settings.unlockHoldTime
+      }).catch(console.error);
+    }
+  }, [settings.unlockWaitTime, settings.unlockHoldTime, isSettingsWindow]);
 
   // Drag functionality - only when unlocked
   const handleMouseDown = useCallback(
@@ -824,78 +865,101 @@ function App() {
         )}
       </div>
 
-      {/* Track Info - With Next Track Transition */}
-      {settings.showTrackInfo && (track || (settings.showNextTrack && nextTrack)) && (
-        <div
-          className="track-info-line"
-          key={showNextTrackInfo ? "next" : "current"}
-          style={{
-            animation: "fadeIn 0.4s ease",
-          }}
-        >
-          {showNextTrackInfo && nextTrack ? (
-            // Next Track Info
-            <>
-              {nextTrack.albumArt && (
-                <img src={nextTrack.albumArt} alt="" className="album-art" />
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: "1px", minWidth: 0, flex: 1 }}>
-                <span style={{
-                  fontSize: "10px",
-                  color: "rgba(255,255,255,0.5)",
-                  fontWeight: 500,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px"
-                }}>
-                  {t.nextTrackLabel}
-                </span>
-                <span className="track-text" style={{ marginTop: "1px" }}>
-                  {nextTrack.artist} - {nextTrack.title}
-                </span>
+      {/* Dynamic Element Rendering based on elementOrder */}
+      {settings.elementOrder.map((element) => {
+        switch (element) {
+          case "trackInfo":
+            // Track Info - With Next Track Transition
+            if (!settings.showTrackInfo || (!track && !(settings.showNextTrack && nextTrack))) {
+              return null;
+            }
+            return (
+              <div
+                key="trackInfo"
+                className="track-info-line"
+                style={{
+                  animation: "fadeIn 0.4s ease",
+                }}
+              >
+                {showNextTrackInfo && nextTrack ? (
+                  // Next Track Info
+                  <>
+                    {nextTrack.albumArt && (
+                      <img src={nextTrack.albumArt} alt="" className="album-art" />
+                    )}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1px", minWidth: 0, flex: 1 }}>
+                      <span style={{
+                        fontSize: "10px",
+                        color: "rgba(255,255,255,0.5)",
+                        fontWeight: 500,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px"
+                      }}>
+                        {t.nextTrackLabel}
+                      </span>
+                      <span className="track-text" style={{ marginTop: "1px" }}>
+                        {nextTrack.artist} - {nextTrack.title}
+                      </span>
+                    </div>
+                  </>
+                ) : track ? (
+                  // Current Track Info
+                  <>
+                    {track.albumArt && (
+                      <img src={track.albumArt} alt="" className="album-art" />
+                    )}
+                    <span className="track-text">
+                      {track.artist} - {track.title}
+                    </span>
+                  </>
+                ) : null}
               </div>
-            </>
-          ) : track ? (
-            // Current Track Info
-            <>
-              {track.albumArt && (
-                <img src={track.albumArt} alt="" className="album-art" />
-              )}
-              <span className="track-text">
-                {track.artist} - {track.title}
-              </span>
-            </>
-          ) : null}
-        </div>
-      )}
+            );
 
-      {/* Lyrics - Only active line */}
-      {/* Lyrics - Keyed by text/time to trigger animation */}
-      {display ? (
-        <div
-          className={`lyrics-box anim-${settings.animationType}`}
-          key={activeLine?.startTime || "empty"}
-        >
-          {/* Original */}
-          {settings.showOriginal && display.main && (
-            <div className="lyric-line original">{display.main}</div>
-          )}
-          {/* Phonetic */}
-          {settings.showPhonetic && display.phonetic && (
-            <div className="lyric-line phonetic">{display.phonetic}</div>
-          )}
-          {/* Translation */}
-          {settings.showTranslation && display.translation && (
-            <div className="lyric-line translation">{display.translation}</div>
-          )}
+          case "original":
+            if (!settings.showOriginal || !display?.main) return null;
+            return (
+              <div
+                key="original"
+                className={`lyrics-box anim-${settings.animationType}`}
+              >
+                <div className="lyric-line original">{display.main}</div>
+              </div>
+            );
+
+          case "phonetic":
+            if (!settings.showPhonetic || !display?.phonetic) return null;
+            return (
+              <div
+                key="phonetic"
+                className={`lyrics-box anim-${settings.animationType}`}
+              >
+                <div className="lyric-line phonetic">{display.phonetic}</div>
+              </div>
+            );
+
+          case "translation":
+            if (!settings.showTranslation || !display?.translation) return null;
+            return (
+              <div
+                key="translation"
+                className={`lyrics-box anim-${settings.animationType}`}
+              >
+                <div className="lyric-line translation">{display.translation}</div>
+              </div>
+            );
+
+          default:
+            return null;
+        }
+      })}
+
+      {/* Waiting Indicator */}
+      {!display && !track && !settings.isLocked && (
+        <div className="waiting-indicator">
+          <div className="waiting-dot"></div>
+          <span>{t.waiting}</span>
         </div>
-      ) : (
-        /* Show waiting indicator only if unlocked (so user knows it's working) */
-        !track && !settings.isLocked && (
-          <div className="waiting-indicator">
-            <div className="waiting-dot"></div>
-            <span>{t.waiting}</span>
-          </div>
-        )
       )}
     </div>
   );
@@ -1305,6 +1369,112 @@ function SettingsPanel({
                     />
                   </div>
                 )}
+              </div>
+            </section>
+
+            {/* Element Order Section */}
+            <section className="ios-section">
+              <div className="section-header">{t.elementOrderSection}</div>
+              <div className="ios-list">
+                {settings.elementOrder.map((element, index) => {
+                  const elementLabels: Record<string, string> = {
+                    trackInfo: t.elementTrackInfo,
+                    original: t.elementOriginal,
+                    phonetic: t.elementPhonetic,
+                    translation: t.elementTranslation,
+                  };
+
+                  const moveUp = () => {
+                    if (index === 0) return;
+                    const newOrder = [...settings.elementOrder];
+                    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                    updateSetting("elementOrder", newOrder);
+                  };
+
+                  const moveDown = () => {
+                    if (index === settings.elementOrder.length - 1) return;
+                    const newOrder = [...settings.elementOrder];
+                    [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+                    updateSetting("elementOrder", newOrder);
+                  };
+
+                  return (
+                    <div key={element} className="ios-item" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ flex: 1 }}>{elementLabels[element] || element}</span>
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        <button
+                          onClick={moveUp}
+                          disabled={index === 0}
+                          style={{
+                            width: "28px",
+                            height: "28px",
+                            borderRadius: "6px",
+                            border: "none",
+                            background: index === 0 ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.2)",
+                            color: index === 0 ? "rgba(255,255,255,0.3)" : "#fff",
+                            cursor: index === 0 ? "not-allowed" : "pointer",
+                            fontSize: "14px",
+                            pointerEvents: "auto",
+                          }}
+                        >
+                          {t.moveUp}
+                        </button>
+                        <button
+                          onClick={moveDown}
+                          disabled={index === settings.elementOrder.length - 1}
+                          style={{
+                            width: "28px",
+                            height: "28px",
+                            borderRadius: "6px",
+                            border: "none",
+                            background: index === settings.elementOrder.length - 1 ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.2)",
+                            color: index === settings.elementOrder.length - 1 ? "rgba(255,255,255,0.3)" : "#fff",
+                            cursor: index === settings.elementOrder.length - 1 ? "not-allowed" : "pointer",
+                            fontSize: "14px",
+                            pointerEvents: "auto",
+                          }}
+                        >
+                          {t.moveDown}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Unlock Timing Section */}
+            <section className="ios-section">
+              <div className="section-header">{t.unlockTimingSection}</div>
+              <div className="ios-list">
+                <div className="ios-item column">
+                  <div className="item-row">
+                    <span>{t.unlockWaitTime}</span>
+                    <span className="value-text">{settings.unlockWaitTime.toFixed(1)}{t.seconds}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="3"
+                    step="0.1"
+                    value={settings.unlockWaitTime}
+                    onChange={(e) => updateSetting("unlockWaitTime", parseFloat(e.target.value))}
+                  />
+                </div>
+                <div className="ios-item column">
+                  <div className="item-row">
+                    <span>{t.unlockHoldTime}</span>
+                    <span className="value-text">{settings.unlockHoldTime.toFixed(1)}{t.seconds}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    step="0.5"
+                    value={settings.unlockHoldTime}
+                    onChange={(e) => updateSetting("unlockHoldTime", parseFloat(e.target.value))}
+                  />
+                </div>
               </div>
             </section>
 

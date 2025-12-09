@@ -94,6 +94,8 @@ struct AppState<R: Runtime> {
 struct AppLockState {
     is_locked: bool,
     is_interactive: bool, // Track current interactive state to avoid spamming calls
+    unlock_wait_time: f32, // Wait time in seconds before progress starts
+    unlock_hold_time: f32, // Hold time in seconds to complete unlock
 }
 
 // HTTP endpoint handlers
@@ -165,6 +167,19 @@ async fn set_lock_state(
     Ok(())
 }
 
+// Tauri command to update unlock timing from frontend
+#[tauri::command]
+async fn set_unlock_timing(
+    state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
+    wait_time: f32,
+    hold_time: f32
+) -> Result<(), String> {
+    let mut s = state.lock().map_err(|e| e.to_string())?;
+    s.unlock_wait_time = wait_time;
+    s.unlock_hold_time = hold_time;
+    Ok(())
+}
+
 // Tauri command to open settings window
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
@@ -212,7 +227,9 @@ pub fn run() {
     // Shared state specifically for the lock/hover logic
     let lock_state = Arc::new(Mutex::new(AppLockState { 
         is_locked: true, // Default to locked (pass-through)
-        is_interactive: false 
+        is_interactive: false,
+        unlock_wait_time: 1.2, // Default: 1.2 seconds
+        unlock_hold_time: 3.0, // Default: 3 seconds 
     }));
 
     tauri::Builder::default()
@@ -436,11 +453,13 @@ pub fn run() {
 
                     // 2. Idle Detection (Unlock Progress)
                     // Only calculate if currently hovering AND LOCKED
-                    let is_locked = loop_lock_state.lock().map(|s| s.is_locked).unwrap_or(true);
+                    let (is_locked, wait_time, hold_time) = loop_lock_state.lock()
+                        .map(|s| (s.is_locked, s.unlock_wait_time, s.unlock_hold_time))
+                        .unwrap_or((true, 1.2, 3.0));
                     
-                    // Config: 1s wait + 3s hold = 4s total
-                    let wait_ticks = 12; // 1.2s delay to be safe
-                    let hold_ticks = 30; // 3s filling time
+                    // Convert seconds to ticks (100ms per tick)
+                    let wait_ticks = (wait_time * 10.0) as i32;
+                    let hold_ticks = (hold_time * 10.0) as i32;
                     let total_ticks = wait_ticks + hold_ticks;
 
                     if current_hovering && is_locked {
@@ -497,6 +516,7 @@ pub fn run() {
             open_settings_window,
             set_ignore_cursor_events,
             set_lock_state,
+            set_unlock_timing,
             get_system_fonts
         ])
         .run(tauri::generate_context!())
