@@ -55,6 +55,21 @@ pub struct LyricsData {
 pub struct ProgressData {
     pub position: u64,
     pub is_playing: bool,
+    #[serde(default)]
+    pub duration: Option<u64>,
+    #[serde(default)]
+    pub remaining: Option<f64>,
+    #[serde(default)]
+    pub next_track: Option<NextTrackInfo>,
+}
+
+// Next track info for preview
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NextTrackInfo {
+    pub title: String,
+    pub artist: String,
+    pub album_art: Option<String>,
 }
 
 // Events to emit to frontend

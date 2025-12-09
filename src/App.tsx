@@ -60,6 +60,16 @@ const defaultSettings = {
   originalFontFamily: "",
   phoneticFontFamily: "",
   translationFontFamily: "",
+
+  // Background Mode
+  backgroundMode: "transparent" as "transparent" | "solid",
+  solidBackgroundColor: "#000000",
+  solidBackgroundOpacity: 50,
+
+  // Visibility Options
+  hideWhenPaused: false,
+  showNextTrack: true,
+  nextTrackSeconds: 15,
 };
 
 // Settings Tab Categories
@@ -159,6 +169,19 @@ const strings = {
     systemDefault: "시스템 기본",
     // Colors Section
     lyricsColorSection: "가사 색상",
+    // Background Mode
+    backgroundModeSection: "배경 모드",
+    bgModeTransparent: "투명",
+    bgModeSolid: "단색",
+    solidBgColor: "배경 색상",
+    solidBgOpacity: "배경 투명도",
+    // Visibility
+    visibilitySection: "표시 옵션",
+    hideWhenPaused: "일시정지 시 숨기기",
+    showNextTrack: "다음 곡 미리보기",
+    nextTrackSeconds: "다음 곡 표시 시간",
+    nextTrackLabel: "다음 곡",
+    seconds: "초",
   },
   en: {
     // Tabs
@@ -249,6 +272,19 @@ const strings = {
     systemDefault: "System Default",
     // Colors Section
     lyricsColorSection: "Lyrics Colors",
+    // Background Mode
+    backgroundModeSection: "Background Mode",
+    bgModeTransparent: "Transparent",
+    bgModeSolid: "Solid",
+    solidBgColor: "Background Color",
+    solidBgOpacity: "Background Opacity",
+    // Visibility
+    visibilitySection: "Visibility Options",
+    hideWhenPaused: "Hide when paused",
+    showNextTrack: "Show next track preview",
+    nextTrackSeconds: "Next track display time",
+    nextTrackLabel: "Next",
+    seconds: "sec",
   },
 };
 
@@ -260,6 +296,8 @@ function App() {
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [progress, setProgress] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [remaining, setRemaining] = useState<number>(Infinity);
+  const [nextTrack, setNextTrack] = useState<{ title: string; artist: string; albumArt?: string } | null>(null);
   const [settings, setSettings] = useState<OverlaySettings>(() => {
     const saved = localStorage.getItem("overlay-settings-v3");
     return saved
@@ -341,6 +379,12 @@ function App() {
         if (payload.progressData) {
           setProgress(payload.progressData.position);
           setIsPlaying(payload.progressData.isPlaying);
+          if (payload.progressData.remaining !== undefined) {
+            setRemaining(payload.progressData.remaining);
+          }
+          if (payload.progressData.nextTrack !== undefined) {
+            setNextTrack(payload.progressData.nextTrack);
+          }
         }
       }
     );
@@ -469,8 +513,12 @@ function App() {
 
   // Get display text
   const getDisplayText = (line: LyricLine) => {
-    const hasPronText = line.pronText && line.pronText !== line.text;
-    const hasTransText = line.transText && line.transText !== line.text;
+    const hasPronText = line.pronText && line.pronText.trim() !== '' && line.pronText !== line.text;
+    // transText가 존재하고, 빈 문자열이 아니며, 원어/발음과 다르면 표시
+    const hasTransText = line.transText &&
+      line.transText.trim() !== '' &&
+      line.transText !== line.text &&
+      line.transText !== line.pronText;
     return {
       main: line.text || "",
       phonetic: hasPronText ? line.pronText : null,
@@ -573,8 +621,8 @@ function App() {
     settings.textAlign === "left"
       ? "align-left"
       : settings.textAlign === "right"
-      ? "align-right"
-      : "align-center";
+        ? "align-right"
+        : "align-center";
 
   // Listen for unlock progress from backend
   useEffect(() => {
@@ -590,17 +638,30 @@ function App() {
     };
   }, []);
 
+  // Calculate visibility
+  const shouldHide = settings.hideWhenPaused && !isPlaying && track !== null;
+  const calculatedOpacity = shouldHide ? 0 : (isHovering && settings.isLocked ? 0.2 : 1);
+
+  // Determine if we should show next track info instead of current track
+  const showNextTrackInfo = settings.showNextTrack && nextTrack && remaining <= settings.nextTrackSeconds && remaining > 0;
+
   return (
     <div
       ref={containerRef}
-      className={`overlay-container ${
-        !isPlaying ? "paused" : ""
-      } ${alignClass} ${settings.isLocked ? "locked" : "unlocked"}`}
+      className={`overlay-container ${!isPlaying ? "paused" : ""
+        } ${alignClass} ${settings.isLocked ? "locked" : "unlocked"}`}
       onMouseDown={handleMouseDown}
       style={
         {
-          opacity: isHovering && settings.isLocked ? 0.2 : 1, // Dim on hover only when locked
+          opacity: calculatedOpacity,
           transition: "opacity 0.3s ease", // Smooth transition
+          background:
+            settings.backgroundMode === "solid"
+              ? hexToRgba(
+                settings.solidBackgroundColor,
+                settings.solidBackgroundOpacity / 100
+              )
+              : "transparent",
           "--original-size": `${settings.originalFontSize}px`,
           "--phonetic-size": `${settings.phoneticFontSize}px`,
           "--translation-size": `${settings.translationFontSize}px`,
@@ -631,8 +692,8 @@ function App() {
             settings.textShadow === "soft"
               ? "0 2px 4px rgba(0,0,0,0.5)"
               : settings.textShadow === "hard"
-              ? "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
-              : "none",
+                ? "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
+                : "none",
           "--text-stroke": settings.textStroke
             ? `${settings.textStrokeSize}px black`
             : "none",
@@ -647,7 +708,7 @@ function App() {
       <div
         className="trigger-zone"
         title="Hover for controls"
-        /* Interactive logic handled by Rust backend polling */
+      /* Interactive logic handled by Rust backend polling */
       ></div>
       {/* Global Unlock Progress Gauge (Centered) */}
       {settings.isLocked && unlockProgress > 0 && (
@@ -694,9 +755,8 @@ function App() {
                 strokeWidth="6"
                 fill="transparent"
                 strokeDasharray={`${2 * Math.PI * 26}`}
-                strokeDashoffset={`${
-                  2 * Math.PI * 26 * (1 - unlockProgress / 100)
-                }`}
+                strokeDashoffset={`${2 * Math.PI * 26 * (1 - unlockProgress / 100)
+                  }`}
                 strokeLinecap="round"
                 style={{
                   transition: "stroke-dashoffset 0.1s linear",
@@ -764,15 +824,47 @@ function App() {
         )}
       </div>
 
-      {/* Track Info */}
-      {settings.showTrackInfo && track && (
-        <div className="track-info-line">
-          {track.albumArt && (
-            <img src={track.albumArt} alt="" className="album-art" />
-          )}
-          <span className="track-text">
-            {track.artist} - {track.title}
-          </span>
+      {/* Track Info - With Next Track Transition */}
+      {settings.showTrackInfo && (track || (settings.showNextTrack && nextTrack)) && (
+        <div
+          className="track-info-line"
+          key={showNextTrackInfo ? "next" : "current"}
+          style={{
+            animation: "fadeIn 0.4s ease",
+          }}
+        >
+          {showNextTrackInfo && nextTrack ? (
+            // Next Track Info
+            <>
+              {nextTrack.albumArt && (
+                <img src={nextTrack.albumArt} alt="" className="album-art" />
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: "1px", minWidth: 0, flex: 1 }}>
+                <span style={{
+                  fontSize: "10px",
+                  color: "rgba(255,255,255,0.5)",
+                  fontWeight: 500,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px"
+                }}>
+                  {t.nextTrackLabel}
+                </span>
+                <span className="track-text" style={{ marginTop: "1px" }}>
+                  {nextTrack.artist} - {nextTrack.title}
+                </span>
+              </div>
+            </>
+          ) : track ? (
+            // Current Track Info
+            <>
+              {track.albumArt && (
+                <img src={track.albumArt} alt="" className="album-art" />
+              )}
+              <span className="track-text">
+                {track.artist} - {track.title}
+              </span>
+            </>
+          ) : null}
         </div>
       )}
 
@@ -797,7 +889,8 @@ function App() {
           )}
         </div>
       ) : (
-        !track && (
+        /* Show waiting indicator only if unlocked (so user knows it's working) */
+        !track && !settings.isLocked && (
           <div className="waiting-indicator">
             <div className="waiting-dot"></div>
             <span>{t.waiting}</span>
@@ -879,9 +972,8 @@ function FontPicker({
             {filteredFonts.map((font) => (
               <div
                 key={font}
-                className={`font-picker-item ${
-                  value === font ? "selected" : ""
-                }`}
+                className={`font-picker-item ${value === font ? "selected" : ""
+                  }`}
                 style={{ fontFamily: font }}
                 onClick={() => {
                   onChange(font);
@@ -975,10 +1067,10 @@ function SettingsPanel({
               {tab === "general"
                 ? t.tabGeneral
                 : tab === "display"
-                ? t.tabDisplay
-                : tab === "style"
-                ? t.tabStyle
-                : t.tabAnim}
+                  ? t.tabDisplay
+                  : tab === "style"
+                    ? t.tabStyle
+                    : t.tabAnim}
             </button>
           )
         )}
@@ -1092,6 +1184,127 @@ function SettingsPanel({
                     <span className="toggle-slider"></span>
                   </div>
                 </label>
+              </div>
+            </section>
+
+            {/* Background Mode Section */}
+            <section className="ios-section">
+              <div className="section-header">{t.backgroundModeSection}</div>
+              <div className="ios-list">
+                <div className="ios-item column">
+                  <div className="item-row">
+                    <span>{t.backgroundModeSection}</span>
+                  </div>
+                  <div className="ios-segmented-control">
+                    <button
+                      className={settings.backgroundMode === "transparent" ? "active" : ""}
+                      onClick={() => updateSetting("backgroundMode", "transparent")}
+                    >
+                      {t.bgModeTransparent}
+                    </button>
+                    <button
+                      className={settings.backgroundMode === "solid" ? "active" : ""}
+                      onClick={() => updateSetting("backgroundMode", "solid")}
+                    >
+                      {t.bgModeSolid}
+                    </button>
+                  </div>
+                </div>
+                {settings.backgroundMode === "solid" && (
+                  <>
+                    <div className="ios-item">
+                      <span>{t.solidBgColor}</span>
+                      <div className="color-wrapper">
+                        <input
+                          type="color"
+                          value={settings.solidBackgroundColor}
+                          onChange={(e) =>
+                            updateSetting("solidBackgroundColor", e.target.value)
+                          }
+                        />
+                        <div
+                          className="color-preview"
+                          style={{ background: settings.solidBackgroundColor }}
+                        ></div>
+                      </div>
+                    </div>
+                    <div className="ios-item column">
+                      <div className="item-row">
+                        <span>{t.solidBgOpacity}</span>
+                        <span className="value-text">
+                          {settings.solidBackgroundOpacity}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={settings.solidBackgroundOpacity}
+                        onChange={(e) =>
+                          updateSetting(
+                            "solidBackgroundOpacity",
+                            parseInt(e.target.value)
+                          )
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+
+            {/* Visibility Options Section */}
+            <section className="ios-section">
+              <div className="section-header">{t.visibilitySection}</div>
+              <div className="ios-list">
+                <label className="ios-item">
+                  <span>{t.hideWhenPaused}</span>
+                  <div className="toggle-wrapper">
+                    <input
+                      type="checkbox"
+                      checked={settings.hideWhenPaused}
+                      onChange={(e) =>
+                        updateSetting("hideWhenPaused", e.target.checked)
+                      }
+                    />
+                    <span className="toggle-slider"></span>
+                  </div>
+                </label>
+                <label className="ios-item">
+                  <span>{t.showNextTrack}</span>
+                  <div className="toggle-wrapper">
+                    <input
+                      type="checkbox"
+                      checked={settings.showNextTrack}
+                      onChange={(e) =>
+                        updateSetting("showNextTrack", e.target.checked)
+                      }
+                    />
+                    <span className="toggle-slider"></span>
+                  </div>
+                </label>
+                {settings.showNextTrack && (
+                  <div className="ios-item column">
+                    <div className="item-row">
+                      <span>{t.nextTrackSeconds}</span>
+                      <span className="value-text">
+                        {settings.nextTrackSeconds}{t.seconds}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="5"
+                      max="30"
+                      value={settings.nextTrackSeconds}
+                      onChange={(e) =>
+                        updateSetting(
+                          "nextTrackSeconds",
+                          parseInt(e.target.value)
+                        )
+                      }
+                    />
+                  </div>
+                )}
               </div>
             </section>
 
@@ -1630,9 +1843,9 @@ function SettingsPanel({
                     >
                       {
                         t[
-                          ("anim" +
-                            type.charAt(0).toUpperCase() +
-                            type.slice(1)) as keyof typeof t
+                        ("anim" +
+                          type.charAt(0).toUpperCase() +
+                          type.slice(1)) as keyof typeof t
                         ]
                       }
                     </button>

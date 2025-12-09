@@ -21,9 +21,18 @@ export interface LyricsData {
     isSynced: boolean;
 }
 
+export interface NextTrackInfo {
+    title: string;
+    artist: string;
+    albumArt?: string;
+}
+
 export interface ProgressData {
     position: number;
     isPlaying: boolean;
+    duration?: number;
+    remaining?: number;
+    nextTrack?: NextTrackInfo | null;
 }
 
 export interface LyricsEvent {

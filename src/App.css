@@ -49,8 +49,8 @@ body,
   /* Fixed padding */
   cursor: default;
   /* Default cursor for passthrough area */
-  background: transparent !important;
-  transition: opacity 0.3s ease;
+  /* background is set by inline style based on backgroundMode */
+  transition: opacity 0.3s ease, background 0.3s ease;
   overflow: hidden;
   pointer-events: none;
   /* [Click Through] Container passes clicks */
@@ -68,7 +68,6 @@ body,
 .overlay-container.unlocked {
   pointer-events: auto;
   border: 2px dashed rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.05) !important;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
   /* Visual contrast */
   cursor: grab;
@@ -121,7 +120,7 @@ body,
 }
 
 /* Show controls when hovering trigger zone or the group itself */
-.trigger-zone:hover ~ .control-group,
+.trigger-zone:hover~.control-group,
 .control-group:hover,
 .overlay-container.unlocked .control-group {
   /* Always show when unlocked */
@@ -243,6 +242,7 @@ body,
 }
 
 @keyframes pulse {
+
   0%,
   100% {
     opacity: 0.4;
@@ -294,13 +294,11 @@ body,
 }
 
 .anim-slide {
-  animation: slideUp var(--anim-duration, 300ms) cubic-bezier(0.2, 0.8, 0.2, 1)
-    forwards;
+  animation: slideUp var(--anim-duration, 300ms) cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
 .anim-scale {
-  animation: scaleIn var(--anim-duration, 300ms)
-    cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: scaleIn var(--anim-duration, 300ms) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 /* Original text - prominent */
@@ -394,11 +392,9 @@ body,
   align-items: center;
   position: sticky;
   top: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(24, 24, 27, 0.96) 0%,
-    rgba(24, 24, 27, 0.85) 100%
-  );
+  background: linear-gradient(180deg,
+      rgba(24, 24, 27, 0.96) 0%,
+      rgba(24, 24, 27, 0.85) 100%);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   z-index: 100;
@@ -540,11 +536,11 @@ body,
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-input:checked + .toggle-slider {
+input:checked+.toggle-slider {
   background: linear-gradient(135deg, #0078d4 0%, #0063b1 100%);
 }
 
-input:checked + .toggle-slider:before {
+input:checked+.toggle-slider:before {
   transform: translateX(20px);
 }
 
@@ -966,4 +962,17 @@ input[type="range"]:active::-webkit-slider-thumb {
 
 .update-btn.primary:active {
   transform: scale(0.98);
+}
+
+/* Fade In Animation for Track Info Transition */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
