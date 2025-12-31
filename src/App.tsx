@@ -468,6 +468,31 @@ function App() {
   // Hover state for opacity control
   const [isHovering, setIsHovering] = useState(false);
 
+  // Data reception timeout state - hide overlay when no data for 5 seconds
+  const [isDataTimedOut, setIsDataTimedOut] = useState(false);
+  const dataTimeoutRef = useRef<number | null>(null);
+  const DATA_TIMEOUT_MS = 5000; // 5 seconds
+
+  // Reset data timeout timer
+  const resetDataTimeout = useCallback(() => {
+    if (dataTimeoutRef.current) {
+      clearTimeout(dataTimeoutRef.current);
+    }
+    setIsDataTimedOut(false);
+    dataTimeoutRef.current = window.setTimeout(() => {
+      setIsDataTimedOut(true);
+    }, DATA_TIMEOUT_MS);
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (dataTimeoutRef.current) {
+        clearTimeout(dataTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Listen for events from Rust backend
   useEffect(() => {
     const unlistenLyrics = listen<LyricsEvent>("lyrics-update", (event) => {
@@ -482,6 +507,8 @@ function App() {
           setLyrics([]);
           setIsSynced(false);
         }
+        // Reset timeout on lyrics update
+        resetDataTimeout();
       }
     });
 
@@ -498,6 +525,8 @@ function App() {
           if (payload.progressData.nextTrack !== undefined) {
             setNextTrack(payload.progressData.nextTrack);
           }
+          // Reset timeout on progress update
+          resetDataTimeout();
         }
       }
     );
@@ -782,7 +811,8 @@ function App() {
   }, []);
 
   // Calculate visibility
-  const shouldHide = settings.hideWhenPaused && !isPlaying && track !== null;
+  // Hide when: paused (if setting enabled), OR no data received for 5+ seconds
+  const shouldHide = (settings.hideWhenPaused && !isPlaying && track !== null) || isDataTimedOut;
   const calculatedOpacity = shouldHide
     ? 0
     : isHovering && settings.isLocked

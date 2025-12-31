@@ -546,6 +546,76 @@
     color: rgba(255, 255, 255, 0.25);
 }
 
+/* Port Input */
+.port-setting-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-input.port-input {
+    width: 100px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+    font-family: "SF Mono", "Consolas", monospace;
+    text-align: center;
+    cursor: not-allowed;
+}
+
+.settings-input.port-input.editable {
+    cursor: text;
+    color: #fff;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-input.port-input.editable:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.settings-input.port-input.editable:focus {
+    outline: none;
+    border-color: #0078d4;
+    box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.2);
+}
+
+.port-apply-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #0078d4 0%, #0063b1 100%);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeIn 0.2s ease;
+}
+
+.port-apply-btn:hover {
+    background: linear-gradient(135deg, #1a8ae5 0%, #0078d4 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
+}
+
+.port-apply-btn:active {
+    transform: translateY(0);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
 /* Align Buttons */
 .align-buttons {
     display: flex;
@@ -1057,4 +1127,200 @@
 /* Font Select - wider */
 .settings-select.font-select {
     max-width: 200px;
+}
+
+/* ============================================
+   Help Tab - Microsoft Fluent Design
+   ============================================ */
+
+/* Welcome Section */
+.help-welcome {
+    text-align: center;
+    padding: 32px 24px;
+    background: linear-gradient(180deg, rgba(0, 120, 212, 0.08) 0%, rgba(0, 180, 216, 0.04) 100%);
+    border: 1px solid rgba(0, 120, 212, 0.15);
+    border-radius: 16px;
+    margin-bottom: 20px;
+    animation: fadeSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+
+.help-welcome-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    animation: welcomeBounce 2s ease-in-out infinite;
+}
+
+@keyframes welcomeBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+
+.help-welcome h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 0 8px;
+    letter-spacing: -0.3px;
+}
+
+.help-welcome p {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    margin: 0;
+}
+
+/* Help Card */
+.help-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 16px;
+    animation: fadeSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.help-card:hover {
+    border-color: rgba(0, 120, 212, 0.2);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+.help-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.help-card-icon {
+    font-size: 24px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 120, 212, 0.1);
+    border-radius: 10px;
+}
+
+.help-card-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0;
+}
+
+.help-card-desc {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    margin: 0 0 16px;
+    line-height: 1.5;
+}
+
+/* Help Steps */
+.help-steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+}
+
+.help-steps li {
+    position: relative;
+    padding: 12px 12px 12px 44px;
+    margin-bottom: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.4;
+    counter-increment: step;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.help-steps li:last-child {
+    margin-bottom: 0;
+}
+
+.help-steps li:hover {
+    background: rgba(0, 0, 0, 0.3);
+    transform: translateX(4px);
+}
+
+.help-steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 22px;
+    background: linear-gradient(135deg, #0078d4 0%, #0063b1 100%);
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Help Tips */
+.help-tips {
+    background: linear-gradient(180deg, rgba(34, 197, 94, 0.06) 0%, rgba(22, 163, 74, 0.03) 100%);
+    border: 1px solid rgba(34, 197, 94, 0.15);
+    border-radius: 14px;
+    padding: 20px;
+    animation: fadeSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+
+.help-tips .help-card-icon {
+    background: rgba(34, 197, 94, 0.15);
+}
+
+.help-tips-list {
+    margin: 16px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.help-tips-list li {
+    position: relative;
+    padding: 10px 10px 10px 32px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.5;
+}
+
+.help-tips-list li::before {
+    content: "✓";
+    position: absolute;
+    left: 8px;
+    top: 10px;
+    color: #4ade80;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+/* Help Tab Active Indicator */
+.settings-tabs button[class*="active"]:first-child .tab-icon {
+    color: #60a5fa;
+}
+
+/* Fluent Acrylic Effect for Help Cards */
+.help-card::before,
+.help-tips::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, transparent 50%);
+    pointer-events: none;
+}
+
+.help-card,
+.help-tips {
+    position: relative;
+    overflow: hidden;
 }

@@ -90,6 +90,11 @@ struct AppState<R: Runtime> {
     app_handle: AppHandle<R>,
 }
 
+// HTTP Server port state
+struct HttpServerPort {
+    port: u16,
+}
+
 // Internal state for lock logic
 struct AppLockState {
     is_locked: bool,
@@ -120,9 +125,9 @@ async fn handle_progress<R: Runtime>(
     "OK"
 }
 
-// Start HTTP server
-async fn start_http_server<R: Runtime>(app_handle: AppHandle<R>) {
-    let state = Arc::new(AppState { app_handle });
+// Start HTTP server with custom port
+async fn start_http_server<R: Runtime>(app_handle: AppHandle<R>, port: u16) {
+    let state = Arc::new(AppState { app_handle: app_handle.clone() });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -135,15 +140,62 @@ async fn start_http_server<R: Runtime>(app_handle: AppHandle<R>) {
         .layer(cors)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:15000")
+    let addr = format!("127.0.0.1:{}", port);
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .expect("Failed to bind to port 15000");
+        .expect(&format!("Failed to bind to port {}", port));
 
-    println!("HTTP server listening on http://127.0.0.1:15000");
+    println!("HTTP server listening on http://{}", addr);
+
+    // Emit port info to frontend
+    let _ = app_handle.emit("server-port", port);
 
     axum::serve(listener, app)
         .await
         .expect("HTTP server failed");
+}
+
+// Tauri command to get current server port
+#[tauri::command]
+async fn get_server_port(
+    state: tauri::State<'_, Arc<Mutex<HttpServerPort>>>
+) -> Result<u16, String> {
+    let s = state.lock().map_err(|e| e.to_string())?;
+    Ok(s.port)
+}
+
+// Tauri command to set server port and save to config
+#[tauri::command]
+async fn set_server_port(port: u16) -> Result<(), String> {
+    if port < 1024 {
+        return Err("Port must be >= 1024".to_string());
+    }
+
+    // Save to config file
+    if let Some(config_dir) = dirs::config_dir() {
+        let app_config_dir = config_dir.join("ivlyrics-overlay");
+
+        // Create directory if it doesn't exist
+        if !app_config_dir.exists() {
+            std::fs::create_dir_all(&app_config_dir)
+                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+        }
+
+        let config_path = app_config_dir.join("port.txt");
+        std::fs::write(&config_path, port.to_string())
+            .map_err(|e| format!("Failed to save port config: {}", e))?;
+
+        Ok(())
+    } else {
+        Err("Could not find config directory".to_string())
+    }
+}
+
+// Tauri command to restart the application
+#[tauri::command]
+async fn restart_app(app_handle: tauri::AppHandle) -> Result<(), String> {
+    app_handle.restart();
+    Ok(())
 }
 
 // Tauri command to start dragging window
@@ -258,10 +310,45 @@ fn get_system_fonts() -> Result<Vec<String>, String> {
     Ok(fonts)
 }
 
+// Load server port from config file or environment variable
+fn load_server_port() -> u16 {
+    // Try environment variable first
+    if let Ok(port_str) = std::env::var("IVLYRICS_PORT") {
+        if let Ok(port) = port_str.parse::<u16>() {
+            if port >= 1024 {
+                return port;
+            }
+        }
+    }
+
+    // Try config file
+    if let Some(config_dir) = dirs::config_dir() {
+        let config_path = config_dir.join("ivlyrics-overlay").join("port.txt");
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Ok(port) = content.trim().parse::<u16>() {
+                if port >= 1024 {
+                    return port;
+                }
+            }
+        }
+    }
+
+    // Default port
+    15000
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load server port
+    let server_port = load_server_port();
+
+    // Shared state for HTTP server port
+    let port_state = Arc::new(Mutex::new(HttpServerPort {
+        port: server_port,
+    }));
+
     // Shared state specifically for the lock/hover logic
-    let lock_state = Arc::new(Mutex::new(AppLockState { 
+    let lock_state = Arc::new(Mutex::new(AppLockState {
         is_locked: true, // Default to locked (pass-through)
         is_interactive: false,
         unlock_wait_time: 1.2, // Default: 1.2 seconds
@@ -278,6 +365,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_deep_link::init()) // Deep Link / URL Scheme
         .manage(lock_state.clone()) // Manage properly in Tauri state
+        .manage(port_state.clone()) // Manage port state
         .setup(move |app| {
             // Setup Tray Icon
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -395,11 +483,12 @@ pub fn run() {
             }
 
             let app_handle = app.handle().clone();
-            
-            // Start HTTP server in background
+
+            // Start HTTP server in background with custom port
             let app_handle_http = app_handle.clone();
+            let http_port = server_port;
             tauri::async_runtime::spawn(async move {
-                start_http_server(app_handle_http).await;
+                start_http_server(app_handle_http, http_port).await;
             });
 
             // Start Mouse Polling Thread
@@ -661,7 +750,10 @@ pub fn run() {
             set_hover_unlock_enabled,
             set_auto_lock_enabled,
             set_auto_lock_delay,
-            get_system_fonts
+            get_system_fonts,
+            get_server_port,
+            set_server_port,
+            restart_app
         ])
 
         .run(tauri::generate_context!())

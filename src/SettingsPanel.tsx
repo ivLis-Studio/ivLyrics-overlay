@@ -5,17 +5,46 @@ import { defaultSettings, OverlaySettings } from "./App";
 import "./SettingsPanel.css";
 
 // 탭 타입 정의
-type SettingsTab = "display" | "style" | "layout" | "system";
+type SettingsTab = "help" | "display" | "style" | "layout" | "system";
 
 // 로컬라이제이션
 const strings = {
     ko: {
         settingsTitle: "설정",
         // 탭
+        tabHelp: "사용법",
         tabDisplay: "표시",
         tabStyle: "스타일",
         tabLayout: "레이아웃",
         tabSystem: "시스템",
+
+        // 사용법 탭 (Help)
+        helpWelcome: "ivLyrics 오버레이에 오신 것을 환영합니다!",
+        helpWelcomeDesc: "실시간으로 가사를 데스크탑에 표시하는 앱입니다.",
+
+        helpMoveTitle: "🖱️ 위치 이동",
+        helpMoveDesc: "오버레이를 이동하려면 먼저 잠금을 해제해야 합니다.",
+        helpMoveStep1: "오버레이 위에 마우스를 올리고 2초간 가만히 있기",
+        helpMoveStep2: "또는 시스템 트레이 아이콘 → '잠금/해제 토글' 클릭",
+        helpMoveStep3: "잠금 해제 후 드래그하여 원하는 위치로 이동",
+        helpMoveStep4: "이동 후 자동으로 다시 잠김 (3초 대기)",
+
+        helpResizeTitle: "📐 크기 조절",
+        helpResizeDesc: "오버레이 크기를 조절하는 방법입니다.",
+        helpResizeStep1: "잠금 해제 상태에서 창 가장자리를 드래그",
+        helpResizeStep2: "또는 '레이아웃' 탭에서 '최대 너비' 설정",
+        helpResizeStep3: "글꼴 크기는 '스타일' 탭에서 조절 가능",
+
+        helpTrayTitle: "🔧 시스템 트레이",
+        helpTrayDesc: "트레이 아이콘으로 빠른 제어가 가능합니다.",
+        helpTrayStep1: "작업 표시줄 트레이에서 ivLyrics 아이콘 클릭",
+        helpTrayStep2: "잠금/해제, 설정, 위치 초기화 등 사용 가능",
+
+        helpTipsTitle: "💡 유용한 팁",
+        helpTip1: "Spotify에서 음악을 재생하면 자동으로 가사가 표시됩니다",
+        helpTip2: "일시정지 시 오버레이 숨기기 옵션을 활용하세요",
+        helpTip3: "여러 줄 가사를 표시하려면 '표시' 탭에서 설정하세요",
+        helpTip4: "Spotify 종료 시 오버레이가 자동으로 숨겨집니다",
 
         // 표시 탭
         elementsSection: "표시 요소",
@@ -104,6 +133,12 @@ const strings = {
         autoLockDelay: "자동 잠금 지연",
 
         advancedSection: "고급",
+        serverPort: "서버 포트",
+        serverPortDesc: "클라이언트 연결 포트",
+        portApply: "적용",
+        portApplyDesc: "포트 변경을 적용하려면 앱을 재시작해야 합니다.",
+        portApplyConfirm: "새 포트로 앱을 재시작하시겠습니까?",
+        portInvalid: "포트는 1024-65535 사이여야 합니다",
         customCSS: "사용자 정의 CSS",
         resetSettings: "설정 초기화",
         resetConfirm: "모든 설정을 초기화하시겠습니까?",
@@ -123,10 +158,39 @@ const strings = {
     en: {
         settingsTitle: "Settings",
         // Tabs
+        tabHelp: "Help",
         tabDisplay: "Display",
         tabStyle: "Style",
         tabLayout: "Layout",
         tabSystem: "System",
+
+        // Help tab
+        helpWelcome: "Welcome to ivLyrics Overlay!",
+        helpWelcomeDesc: "An app that displays real-time lyrics on your desktop.",
+
+        helpMoveTitle: "🖱️ Moving the Overlay",
+        helpMoveDesc: "To move the overlay, you need to unlock it first.",
+        helpMoveStep1: "Hover over the overlay and stay still for 2 seconds",
+        helpMoveStep2: "Or click system tray icon → 'Lock/Unlock Toggle'",
+        helpMoveStep3: "After unlocking, drag to move to desired position",
+        helpMoveStep4: "Auto-locks again after 3 seconds of inactivity",
+
+        helpResizeTitle: "📐 Resizing",
+        helpResizeDesc: "How to resize the overlay.",
+        helpResizeStep1: "When unlocked, drag the window edges",
+        helpResizeStep2: "Or set 'Max Width' in Layout tab",
+        helpResizeStep3: "Font sizes can be adjusted in Style tab",
+
+        helpTrayTitle: "🔧 System Tray",
+        helpTrayDesc: "Quick controls via tray icon.",
+        helpTrayStep1: "Click ivLyrics icon in taskbar tray",
+        helpTrayStep2: "Lock/unlock, settings, reset position available",
+
+        helpTipsTitle: "💡 Useful Tips",
+        helpTip1: "Lyrics appear automatically when playing music in Spotify",
+        helpTip2: "Use 'Hide when paused' option for cleaner experience",
+        helpTip3: "Show multiple lyrics lines in Display tab",
+        helpTip4: "Overlay auto-hides when Spotify is closed",
 
         // Display tab
         elementsSection: "Elements",
@@ -215,6 +279,12 @@ const strings = {
         autoLockDelay: "Lock delay",
 
         advancedSection: "Advanced",
+        serverPort: "Server Port",
+        serverPortDesc: "Client connection port",
+        portApply: "Apply",
+        portApplyDesc: "App restart required to apply port change.",
+        portApplyConfirm: "Restart app with new port?",
+        portInvalid: "Port must be between 1024-65535",
         customCSS: "Custom CSS",
         resetSettings: "Reset Settings",
         resetConfirm: "Reset all settings?",
@@ -569,15 +639,52 @@ export default function SettingsPanelNew({
     onCheckUpdates: () => void;
 }) {
     const t = strings[settings.language || "ko"];
-    const [activeTab, setActiveTab] = useState<SettingsTab>("display");
+    const [activeTab, setActiveTab] = useState<SettingsTab>("help");
     const [autoStart, setAutoStart] = useState(false);
+    const [serverPort, setServerPort] = useState<number>(15000);
+    const [portInput, setPortInput] = useState<string>("15000");
+    const [portChanged, setPortChanged] = useState(false);
     const contentRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         isEnabled()
             .then(setAutoStart)
             .catch(console.error);
+
+        // Load current server port
+        invoke<number>("get_server_port")
+            .then((port) => {
+                setServerPort(port);
+                setPortInput(String(port));
+            })
+            .catch(console.error);
     }, []);
+
+    // Handle port input change
+    const handlePortInputChange = (value: string) => {
+        setPortInput(value);
+        const num = parseInt(value, 10);
+        setPortChanged(!isNaN(num) && num !== serverPort && num >= 1024 && num <= 65535);
+    };
+
+    // Apply port change and restart
+    const handlePortApply = async () => {
+        const newPort = parseInt(portInput, 10);
+        if (isNaN(newPort) || newPort < 1024 || newPort > 65535) {
+            alert(t.portInvalid);
+            return;
+        }
+
+        if (confirm(t.portApplyConfirm)) {
+            try {
+                await invoke("set_server_port", { port: newPort });
+                await invoke("restart_app");
+            } catch (e) {
+                console.error("Failed to apply port:", e);
+                alert(String(e));
+            }
+        }
+    };
 
     const update = <K extends keyof OverlaySettings>(
         key: K,
@@ -614,6 +721,7 @@ export default function SettingsPanelNew({
             {/* 탭 네비게이션 */}
             <nav className="settings-tabs">
                 {([
+                    { key: "help" as SettingsTab, icon: "fa-circle-question", label: t.tabHelp },
                     { key: "display" as SettingsTab, icon: "fa-eye", label: t.tabDisplay },
                     { key: "style" as SettingsTab, icon: "fa-palette", label: t.tabStyle },
                     { key: "layout" as SettingsTab, icon: "fa-table-columns", label: t.tabLayout },
@@ -635,6 +743,69 @@ export default function SettingsPanelNew({
             {/* 컨텐츠 영역 - 커스텀 스크롤바 적용 */}
             <div className="settings-content-wrapper">
                 <div className="settings-content-new" ref={contentRef} key={activeTab}>
+                    {/* ========== 사용법 탭 ========== */}
+                    {activeTab === "help" && (
+                        <>
+                            <div className="help-welcome" style={{ animationDelay: '0ms' }}>
+                                <div className="help-welcome-icon">🎵</div>
+                                <h2>{t.helpWelcome}</h2>
+                                <p>{t.helpWelcomeDesc}</p>
+                            </div>
+
+                            <div className="help-card" style={{ animationDelay: '50ms' }}>
+                                <div className="help-card-header">
+                                    <span className="help-card-icon">{t.helpMoveTitle.split(' ')[0]}</span>
+                                    <h3>{t.helpMoveTitle.substring(t.helpMoveTitle.indexOf(' ') + 1)}</h3>
+                                </div>
+                                <p className="help-card-desc">{t.helpMoveDesc}</p>
+                                <ol className="help-steps">
+                                    <li>{t.helpMoveStep1}</li>
+                                    <li>{t.helpMoveStep2}</li>
+                                    <li>{t.helpMoveStep3}</li>
+                                    <li>{t.helpMoveStep4}</li>
+                                </ol>
+                            </div>
+
+                            <div className="help-card" style={{ animationDelay: '100ms' }}>
+                                <div className="help-card-header">
+                                    <span className="help-card-icon">{t.helpResizeTitle.split(' ')[0]}</span>
+                                    <h3>{t.helpResizeTitle.substring(t.helpResizeTitle.indexOf(' ') + 1)}</h3>
+                                </div>
+                                <p className="help-card-desc">{t.helpResizeDesc}</p>
+                                <ol className="help-steps">
+                                    <li>{t.helpResizeStep1}</li>
+                                    <li>{t.helpResizeStep2}</li>
+                                    <li>{t.helpResizeStep3}</li>
+                                </ol>
+                            </div>
+
+                            <div className="help-card" style={{ animationDelay: '150ms' }}>
+                                <div className="help-card-header">
+                                    <span className="help-card-icon">{t.helpTrayTitle.split(' ')[0]}</span>
+                                    <h3>{t.helpTrayTitle.substring(t.helpTrayTitle.indexOf(' ') + 1)}</h3>
+                                </div>
+                                <p className="help-card-desc">{t.helpTrayDesc}</p>
+                                <ol className="help-steps">
+                                    <li>{t.helpTrayStep1}</li>
+                                    <li>{t.helpTrayStep2}</li>
+                                </ol>
+                            </div>
+
+                            <div className="help-tips" style={{ animationDelay: '200ms' }}>
+                                <div className="help-card-header">
+                                    <span className="help-card-icon">{t.helpTipsTitle.split(' ')[0]}</span>
+                                    <h3>{t.helpTipsTitle.substring(t.helpTipsTitle.indexOf(' ') + 1)}</h3>
+                                </div>
+                                <ul className="help-tips-list">
+                                    <li>{t.helpTip1}</li>
+                                    <li>{t.helpTip2}</li>
+                                    <li>{t.helpTip3}</li>
+                                    <li>{t.helpTip4}</li>
+                                </ul>
+                            </div>
+                        </>
+                    )}
+
                     {/* ========== 표시 탭 ========== */}
                     {activeTab === "display" && (
                         <>
@@ -970,6 +1141,26 @@ export default function SettingsPanelNew({
                             </SettingSection>
 
                             <SettingSection title={t.advancedSection} delay={100}>
+                                <SettingItem label={t.serverPort} description={t.serverPortDesc}>
+                                    <div className="port-setting-row">
+                                        <input
+                                            type="number"
+                                            className="settings-input port-input editable"
+                                            value={portInput}
+                                            min={1024}
+                                            max={65535}
+                                            onChange={(e) => handlePortInputChange(e.target.value)}
+                                        />
+                                        {portChanged && (
+                                            <button
+                                                className="port-apply-btn"
+                                                onClick={handlePortApply}
+                                            >
+                                                {t.portApply}
+                                            </button>
+                                        )}
+                                    </div>
+                                </SettingItem>
                                 <SettingItem label={t.customCSS} column>
                                     <textarea
                                         className="css-editor"
