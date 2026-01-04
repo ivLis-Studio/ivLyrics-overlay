@@ -6,7 +6,8 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 import type { TrackInfo, LyricLine, LyricsEvent, ProgressEvent } from "./types";
-import SettingsPanelNew from "./SettingsPanel";
+import SettingsPanel from "./SettingsPanel";
+import SetupWizard from "./SetupWizard";
 
 // Default settings
 const defaultSettings = {
@@ -14,6 +15,9 @@ const defaultSettings = {
   showPhonetic: true,
   showTranslation: true,
   showTrackInfo: true,
+
+  // Startup behavior
+  startMinimized: false, // Start minimized to tray (no settings window)
 
   // Font Sizes (px)
   originalFontSize: 24,
@@ -43,11 +47,28 @@ const defaultSettings = {
   isLocked: true,
   language: "ko" as "ko" | "en",
 
+  // Line Padding (NEW - separate horizontal/vertical)
+  linePaddingH: 12, // px - horizontal padding
+  linePaddingV: 4, // px - vertical padding
+
+  // Line Typography Details (NEW)
+  originalLetterSpacing: 0, // px
+  phoneticLetterSpacing: 0, // px
+  translationLetterSpacing: 0, // px
+  originalLineHeight: 1.2, // multiplier
+  phoneticLineHeight: 1.3, // multiplier
+  translationLineHeight: 1.3, // multiplier
+
   // Text Effects
   textStroke: false,
   textStrokeSize: 1,
   textStrokeMode: "outer" as "inner" | "outer",
+  textStrokeColor: "#000000", // NEW - stroke color
   textShadow: "none" as "none" | "soft" | "hard",
+  textShadowColor: "#000000", // NEW - shadow color
+
+  // Blur Effect (NEW)
+  lineBlurStrength: 4, // px - backdrop blur
 
   // Track Info (곡 정보) Styling
   trackInfoFontSize: 13,
@@ -56,6 +77,9 @@ const defaultSettings = {
   trackInfoBgColor: "#000000",
   trackInfoBgOpacity: 60,
   trackInfoBorderRadius: 12,
+  trackInfoPaddingH: 12, // NEW - horizontal padding
+  trackInfoPaddingV: 6, // NEW - vertical padding
+  trackInfoBlur: 12, // NEW - backdrop blur
 
   // Font Families
   originalFontFamily: "",
@@ -99,6 +123,7 @@ const defaultSettings = {
   lyricsNextLines: 0, // 현재 줄 이후 표시할 줄 수 (0-5)
   lyricsSetGap: 12, // 가사 세트 간 간격 (px)
   fadeNonActiveLyrics: true, // 현재 줄 외 가사 연하게 표시
+  inactiveLyricsOpacity: 50, // NEW - 비활성 가사 투명도 (%)
 
   // Layout Customization
   overlayMaxWidth: 500, // px (0 = no limit)
@@ -411,6 +436,11 @@ function App() {
     return { ...defaultSettings, language: detectedLang as "ko" | "en" };
   });
 
+  // Setup wizard state - check if setup has been completed
+  const [isSetupComplete, setIsSetupComplete] = useState<boolean>(() => {
+    return localStorage.getItem("overlay-setup-complete") === "true";
+  });
+
   const t = strings[settings.language || "ko"];
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -698,14 +728,38 @@ function App() {
     };
   };
 
-  // If this is the settings window, render settings UI
+  // Handle setup wizard completion
+  const handleSetupComplete = useCallback((newSettings: OverlaySettings) => {
+    setSettings(newSettings);
+    setIsSetupComplete(true);
+    localStorage.setItem("overlay-setup-complete", "true");
+  }, []);
+
+  // Handle reset all settings (including setup)
+  const handleResetAll = useCallback(() => {
+    localStorage.removeItem("overlay-setup-complete");
+    setIsSetupComplete(false);
+  }, []);
+
+  // If this is the settings window, render settings UI or setup wizard
   if (isSettingsWindow) {
+    // Show setup wizard if not completed
+    if (!isSetupComplete) {
+      return (
+        <SetupWizard
+          onComplete={handleSetupComplete}
+          currentSettings={settings}
+        />
+      );
+    }
+
     return (
       <>
-        <SettingsPanelNew
+        <SettingsPanel
           settings={settings}
           onSettingsChange={setSettings}
           onCheckUpdates={() => checkForAppUpdates(true)}
+          onResetAll={handleResetAll}
         />
         {/* Update Modal */}
         {updateModalOpen && (
@@ -718,14 +772,14 @@ function App() {
             <div className="update-modal" onClick={(e) => e.stopPropagation()}>
               <div className="update-modal-icon">
                 {updateStatus === "checking" && (
-                  <span className="spinner">⏳</span>
+                  <span className="spinner"><i className="fa-solid fa-spinner fa-spin"></i></span>
                 )}
-                {updateStatus === "available" && <span>🎉</span>}
-                {updateStatus === "upToDate" && <span>✅</span>}
+                {updateStatus === "available" && <span><i className="fa-solid fa-gift"></i></span>}
+                {updateStatus === "upToDate" && <span><i className="fa-solid fa-check-circle"></i></span>}
                 {updateStatus === "downloading" && (
-                  <span className="spinner">⬇️</span>
+                  <span className="spinner"><i className="fa-solid fa-download fa-beat"></i></span>
                 )}
-                {updateStatus === "error" && <span>❌</span>}
+                {updateStatus === "error" && <span><i className="fa-solid fa-exclamation-circle"></i></span>}
               </div>
               <div className="update-modal-title">
                 {updateStatus === "checking" && t.checking}
@@ -857,6 +911,18 @@ function App() {
             settings.backgroundColor,
             settings.lineBackgroundOpacity / 100
           ),
+          // New line styling vars
+          "--line-padding-h": `${settings.linePaddingH}px`,
+          "--line-padding-v": `${settings.linePaddingV}px`,
+          "--line-blur": `${settings.lineBlurStrength}px`,
+          // Letter spacing and line height
+          "--original-letter-spacing": `${settings.originalLetterSpacing}px`,
+          "--phonetic-letter-spacing": `${settings.phoneticLetterSpacing}px`,
+          "--translation-letter-spacing": `${settings.translationLetterSpacing}px`,
+          "--original-line-height": settings.originalLineHeight,
+          "--phonetic-line-height": settings.phoneticLineHeight,
+          "--translation-line-height": settings.translationLineHeight,
+          // Track info styling
           "--track-info-size": `${settings.trackInfoFontSize}px`,
           "--track-info-weight": settings.trackInfoFontWeight,
           "--track-info-color": settings.trackInfoColor,
@@ -865,25 +931,33 @@ function App() {
             settings.trackInfoBgOpacity / 100
           ),
           "--track-info-radius": `${settings.trackInfoBorderRadius}px`,
+          "--track-info-padding-h": `${settings.trackInfoPaddingH}px`,
+          "--track-info-padding-v": `${settings.trackInfoPaddingV}px`,
+          "--track-info-blur": `${settings.trackInfoBlur}px`,
+          // General styling
           "--border-radius": `${settings.borderRadius}px`,
           "--padding": `${settings.padding}px`,
           "--line-gap": `${settings.lineGap}px`,
           "--anim-duration": `${settings.animationDuration}ms`,
+          // Text effects with colors
           "--text-shadow":
             settings.textShadow === "soft"
-              ? "0 2px 4px rgba(0,0,0,0.5)"
+              ? `0 2px 4px ${hexToRgba(settings.textShadowColor, 0.5)}`
               : settings.textShadow === "hard"
-                ? "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
+                ? `1px 1px 0 ${settings.textShadowColor}, -1px -1px 0 ${settings.textShadowColor}, 1px -1px 0 ${settings.textShadowColor}, -1px 1px 0 ${settings.textShadowColor}`
                 : "none",
           "--text-stroke": settings.textStroke
-            ? `${settings.textStrokeSize}px black`
+            ? `${settings.textStrokeSize}px ${settings.textStrokeColor}`
             : "none",
           "--text-stroke-mode":
             settings.textStrokeMode === "inner" ? "fill stroke" : "stroke fill",
+          // Font families
           "--original-font": settings.originalFontFamily || "inherit",
           "--phonetic-font": settings.phoneticFontFamily || "inherit",
           "--translation-font": settings.translationFontFamily || "inherit",
+          // Layout
           "--section-gap": `${settings.sectionGap}px`,
+          "--inactive-opacity": settings.inactiveLyricsOpacity / 100,
           maxWidth:
             settings.overlayMaxWidth > 0
               ? `${settings.overlayMaxWidth}px`
@@ -1085,8 +1159,9 @@ function App() {
           // 각 줄에 대해 렌더링 (세트 단위로 wrapper)
           const renderLyricSet = (lineInfo: { line: LyricLine; index: number; isActive: boolean }, setIndex: number, totalSets: number) => {
             const displayData = getDisplayText(lineInfo.line);
-            const fadeOpacity = lineInfo.isActive || !settings.fadeNonActiveLyrics ? 1 : 0.5;
             const isLastSet = setIndex === totalSets - 1;
+            // CSS handles inactive opacity via --inactive-opacity variable and .inactive class
+            const activeClass = lineInfo.isActive ? 'active' : (settings.fadeNonActiveLyrics ? 'inactive' : 'active');
 
             // Render lyrics elements in order for this line
             const elements = lyricsElements
@@ -1097,8 +1172,7 @@ function App() {
                     return (
                       <div
                         key={`original-${lineInfo.index}`}
-                        className={`lyric-line original ${lineInfo.isActive ? 'active' : 'inactive'}`}
-                        style={{ opacity: fadeOpacity }}
+                        className={`lyric-line original ${activeClass}`}
                       >
                         {displayData.main}
                       </div>
@@ -1108,8 +1182,7 @@ function App() {
                     return (
                       <div
                         key={`phonetic-${lineInfo.index}`}
-                        className={`lyric-line phonetic ${lineInfo.isActive ? 'active' : 'inactive'}`}
-                        style={{ opacity: fadeOpacity }}
+                        className={`lyric-line phonetic ${activeClass}`}
                       >
                         {displayData.phonetic}
                       </div>
@@ -1119,8 +1192,7 @@ function App() {
                     return (
                       <div
                         key={`translation-${lineInfo.index}`}
-                        className={`lyric-line translation ${lineInfo.isActive ? 'active' : 'inactive'}`}
-                        style={{ opacity: fadeOpacity }}
+                        className={`lyric-line translation ${activeClass}`}
                       >
                         {displayData.translation}
                       </div>
@@ -1190,6 +1262,62 @@ function App() {
         <div className="waiting-indicator">
           <div className="waiting-dot"></div>
           <span>{t.waiting}</span>
+        </div>
+      )}
+
+      {/* Update Modal - shown in main overlay when update is available */}
+      {updateModalOpen && (
+        <div
+          className="update-modal-overlay"
+          onClick={() =>
+            updateStatus !== "downloading" && setUpdateModalOpen(false)
+          }
+          style={{ pointerEvents: 'auto' }}
+        >
+          <div className="update-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="update-modal-icon">
+              {updateStatus === "checking" && (
+                <span className="spinner"><i className="fa-solid fa-spinner fa-spin"></i></span>
+              )}
+              {updateStatus === "available" && <span><i className="fa-solid fa-gift"></i></span>}
+              {updateStatus === "upToDate" && <span><i className="fa-solid fa-check-circle"></i></span>}
+              {updateStatus === "downloading" && (
+                <span className="spinner"><i className="fa-solid fa-download fa-beat"></i></span>
+              )}
+              {updateStatus === "error" && <span><i className="fa-solid fa-exclamation-circle"></i></span>}
+            </div>
+            <div className="update-modal-title">
+              {updateStatus === "checking" && t.checking}
+              {updateStatus === "available" &&
+                t.updateAvailable.replace("{version}", updateVersion)}
+              {updateStatus === "upToDate" && t.upToDate}
+              {updateStatus === "downloading" && t.downloading}
+              {updateStatus === "error" && `${t.errorParams}: ${updateError}`}
+            </div>
+            <div className="update-modal-buttons">
+              {updateStatus === "available" && (
+                <>
+                  <button
+                    className="update-btn secondary"
+                    onClick={() => setUpdateModalOpen(false)}
+                  >
+                    {t.cancel}
+                  </button>
+                  <button className="update-btn primary" onClick={installUpdate}>
+                    {t.install}
+                  </button>
+                </>
+              )}
+              {(updateStatus === "upToDate" || updateStatus === "error") && (
+                <button
+                  className="update-btn primary"
+                  onClick={() => setUpdateModalOpen(false)}
+                >
+                  {t.close}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

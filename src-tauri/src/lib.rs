@@ -104,6 +104,122 @@ struct AppLockState {
     enable_hover_unlock: bool, // Enable/disable hover unlock feature
     enable_auto_lock: bool, // Enable/disable auto-lock when idle after unlock
     auto_lock_delay: f32, // Delay in seconds before auto-locking (when no movement after unlock)
+    language: String, // Current language setting ("ko" or "en")
+}
+
+// Localized tray menu strings
+struct TrayStrings {
+    quit: &'static str,
+    settings: &'static str,
+    reset_pos: &'static str,
+    toggle_lock: &'static str,
+    devtools: &'static str,
+}
+
+fn get_tray_strings(lang: &str) -> TrayStrings {
+    match lang {
+        "ko" => TrayStrings {
+            quit: "종료",
+            settings: "설정",
+            reset_pos: "위치 초기화",
+            toggle_lock: "잠금 전환",
+            devtools: "개발자 도구",
+        },
+        _ => TrayStrings {
+            quit: "Quit",
+            settings: "Settings",
+            reset_pos: "Reset Position",
+            toggle_lock: "Lock/Unlock",
+            devtools: "DevTools",
+        }
+    }
+}
+
+// Load language setting from config file
+fn load_language_setting() -> String {
+    if let Some(config_dir) = dirs::config_dir() {
+        let config_path = config_dir.join("ivlyrics-overlay").join("language.txt");
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            let lang = content.trim().to_string();
+            if lang == "ko" || lang == "en" {
+                return lang;
+            }
+        }
+    }
+    "ko".to_string() // Default to Korean
+}
+
+// Load startMinimized setting from localStorage (via config file)
+fn load_start_minimized_setting() -> bool {
+    if let Some(config_dir) = dirs::config_dir() {
+        let config_path = config_dir.join("ivlyrics-overlay").join("start_minimized.txt");
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            return content.trim() == "true";
+        }
+    }
+    false // Default: open settings window on startup
+}
+
+// Save startMinimized setting to config file
+fn save_start_minimized_setting(minimized: bool) -> Result<(), String> {
+    if let Some(config_dir) = dirs::config_dir() {
+        let app_config_dir = config_dir.join("ivlyrics-overlay");
+
+        if !app_config_dir.exists() {
+            std::fs::create_dir_all(&app_config_dir)
+                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+        }
+
+        let config_path = app_config_dir.join("start_minimized.txt");
+        std::fs::write(&config_path, if minimized { "true" } else { "false" })
+            .map_err(|e| format!("Failed to save start_minimized config: {}", e))?;
+        Ok(())
+    } else {
+        Err("Could not find config directory".to_string())
+    }
+}
+
+// Tauri command to get startMinimized setting
+#[tauri::command]
+async fn get_start_minimized() -> Result<bool, String> {
+    Ok(load_start_minimized_setting())
+}
+
+// Tauri command to set startMinimized setting
+#[tauri::command]
+async fn set_start_minimized(minimized: bool) -> Result<(), String> {
+    save_start_minimized_setting(minimized)
+}
+
+// Save language setting to config file
+fn save_language_setting(lang: &str) -> Result<(), String> {
+    if let Some(config_dir) = dirs::config_dir() {
+        let app_config_dir = config_dir.join("ivlyrics-overlay");
+        
+        if !app_config_dir.exists() {
+            std::fs::create_dir_all(&app_config_dir)
+                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+        }
+        
+        let config_path = app_config_dir.join("language.txt");
+        std::fs::write(&config_path, lang)
+            .map_err(|e| format!("Failed to save language config: {}", e))?;
+        Ok(())
+    } else {
+        Err("Could not find config directory".to_string())
+    }
+}
+
+// Tauri command to update language from frontend
+#[tauri::command]
+async fn set_tray_language(
+    state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
+    language: String
+) -> Result<(), String> {
+    let mut s = state.lock().map_err(|e| e.to_string())?;
+    s.language = language.clone();
+    save_language_setting(&language)?;
+    Ok(())
 }
 
 // HTTP endpoint handlers
@@ -193,9 +309,9 @@ async fn set_server_port(port: u16) -> Result<(), String> {
 
 // Tauri command to restart the application
 #[tauri::command]
-async fn restart_app(app_handle: tauri::AppHandle) -> Result<(), String> {
+fn restart_app(app_handle: tauri::AppHandle) {
     app_handle.restart();
-    Ok(())
+    // Note: restart() does not return, so no Ok() needed
 }
 
 // Tauri command to start dragging window
@@ -347,6 +463,9 @@ pub fn run() {
         port: server_port,
     }));
 
+    // Load language setting
+    let saved_language = load_language_setting();
+
     // Shared state specifically for the lock/hover logic
     let lock_state = Arc::new(Mutex::new(AppLockState {
         is_locked: true, // Default to locked (pass-through)
@@ -356,6 +475,7 @@ pub fn run() {
         enable_hover_unlock: true, // Default: enabled
         enable_auto_lock: true, // Default: enabled
         auto_lock_delay: 3.0, // Default: 3 seconds
+        language: saved_language.clone(), // Load saved language
     }));
 
     tauri::Builder::default()
@@ -367,12 +487,15 @@ pub fn run() {
         .manage(lock_state.clone()) // Manage properly in Tauri state
         .manage(port_state.clone()) // Manage port state
         .setup(move |app| {
-            // Setup Tray Icon
-            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-            let reset_pos_i = MenuItem::with_id(app, "reset_pos", "Reset Position", true, None::<&str>)?;
-            let toggle_lock_i = MenuItem::with_id(app, "toggle_lock", "Lock/Unlock Toggle", true, None::<&str>)?;
-            let devpanel_i = MenuItem::with_id(app, "devpanel", "Toggle DevTools", true, None::<&str>)?;
+            // Get localized tray strings
+            let tray_strings = get_tray_strings(&saved_language);
+            
+            // Setup Tray Icon with localized strings
+            let quit_i = MenuItem::with_id(app, "quit", tray_strings.quit, true, None::<&str>)?;
+            let settings_i = MenuItem::with_id(app, "settings", tray_strings.settings, true, None::<&str>)?;
+            let reset_pos_i = MenuItem::with_id(app, "reset_pos", tray_strings.reset_pos, true, None::<&str>)?;
+            let toggle_lock_i = MenuItem::with_id(app, "toggle_lock", tray_strings.toggle_lock, true, None::<&str>)?;
+            let devpanel_i = MenuItem::with_id(app, "devpanel", tray_strings.devtools, true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&toggle_lock_i, &settings_i, &reset_pos_i, &devpanel_i, &quit_i])?;
 
             // Get tray icon - use default_window_icon with proper error handling
@@ -491,6 +614,27 @@ pub fn run() {
                 start_http_server(app_handle_http, http_port).await;
             });
 
+            // Auto-open settings window on startup (unless startMinimized is enabled)
+            let start_minimized = load_start_minimized_setting();
+            if !start_minimized {
+                let app_handle_settings = app_handle.clone();
+                // Delay slightly to ensure main window is ready
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(500));
+                    let _ = tauri::WebviewWindowBuilder::new(
+                        &app_handle_settings,
+                        "settings",
+                        tauri::WebviewUrl::App("index.html?settings=true".into())
+                    )
+                    .title("Settings")
+                    .inner_size(400.0, 600.0)
+                    .resizable(true)
+                    .decorations(true)
+                    .always_on_top(true)
+                    .build();
+                });
+            }
+
             // Start Mouse Polling Thread
             let loop_lock_state = lock_state.clone();
             let loop_app_handle = app_handle.clone();
@@ -509,8 +653,21 @@ pub fn run() {
                 let mut last_window_y: i32 = 0;
                 let mut auto_lock_idle_ticks: i32 = 0;
 
+                // For always-on-top enforcement
+                let mut always_on_top_ticks: i32 = 0;
+                let always_on_top_interval: i32 = 10; // Every 10 ticks (1 second)
+
                 loop {
                     std::thread::sleep(Duration::from_millis(100)); // Poll every 100ms
+
+                    // Enforce always-on-top periodically (every 1 second)
+                    always_on_top_ticks += 1;
+                    if always_on_top_ticks >= always_on_top_interval {
+                        always_on_top_ticks = 0;
+                        if let Some(window) = loop_app_handle.get_webview_window("main") {
+                            let _ = window.set_always_on_top(true);
+                        }
+                    }
 
                     let mut current_hovering = false;
                     let mut current_x = 0;
@@ -753,7 +910,10 @@ pub fn run() {
             get_system_fonts,
             get_server_port,
             set_server_port,
-            restart_app
+            restart_app,
+            set_tray_language,
+            get_start_minimized,
+            set_start_minimized
         ])
 
         .run(tauri::generate_context!())
