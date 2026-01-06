@@ -119,7 +119,7 @@ body,
   padding: var(--spacing-md);
   cursor: default;
   transition: opacity var(--transition-normal), background var(--transition-normal);
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none;
 }
 
@@ -132,7 +132,8 @@ body,
 /* Unlocked State - Visual Indicator */
 .overlay-container.unlocked {
   pointer-events: auto;
-  border: 2px dashed rgba(255, 255, 255, 0.4);
+  outline: 2px dashed rgba(255, 255, 255, 0.4);
+  outline-offset: -2px;
   border-radius: var(--radius-lg);
   background: rgba(0, 120, 212, 0.05);
   box-shadow: inset 0 0 30px rgba(0, 120, 212, 0.1);
@@ -554,6 +555,17 @@ body,
 
 .update-btn:active {
   transform: scale(0.98);
+}
+
+.update-btn.secondary {
+  background: var(--surface-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
+}
+
+.update-btn.secondary:hover {
+  background: var(--surface-secondary);
+  border-color: var(--glass-highlight);
 }
 
 /* ============================================

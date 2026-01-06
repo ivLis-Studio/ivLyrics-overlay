@@ -4,6 +4,25 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { openUrl } from "@tauri-apps/plugin-opener";
+
+// GitHub Release API types
+interface GitHubAsset {
+  name: string;
+  browser_download_url: string;
+}
+
+interface GitHubRelease {
+  tag_name: string;
+  name: string;
+  assets: GitHubAsset[];
+  html_url: string;
+}
+
+// Repository info
+const GITHUB_OWNER = "ivLis-Studio";
+const GITHUB_REPO = "ivLyrics-overlay";
+const CURRENT_VERSION = "1.1.8";
 import "./App.css";
 import type { TrackInfo, LyricLine, LyricsEvent, ProgressEvent } from "./types";
 import SettingsPanel from "./SettingsPanel";
@@ -184,6 +203,11 @@ const strings = {
     installUpdate: "설치 후 재시작하시겠습니까?",
     errorParams: "오류",
     downloading: "다운로드 중...",
+    // GitHub fallback
+    githubFallback: "GitHub에서 다운로드",
+    githubFallbackDesc: "자동 업데이트에 실패했습니다. 수동으로 다운로드해주세요.",
+    downloadPage: "다운로드 페이지 열기",
+    directDownload: "직접 다운로드",
 
     // New Strings
     textStyleSection: "텍스트 스타일",
@@ -319,6 +343,11 @@ const strings = {
     installUpdate: "Install and restart?",
     errorParams: "Error",
     downloading: "Downloading...",
+    // GitHub fallback
+    githubFallback: "Download from GitHub",
+    githubFallbackDesc: "Auto-update failed. Please download manually.",
+    downloadPage: "Open Download Page",
+    directDownload: "Direct Download",
 
     // New Strings
     textStyleSection: "TEXT STYLES",
@@ -452,11 +481,14 @@ function App() {
     | "available"
     | "downloading"
     | "upToDate"
-    | "error";
+    | "error"
+    | "githubFallback";
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateVersion, setUpdateVersion] = useState("");
   const [updateError, setUpdateError] = useState("");
+  const [githubDownloadUrl, setGithubDownloadUrl] = useState("");
+  const [githubReleaseUrl, setGithubReleaseUrl] = useState("");
   const updateRef = useRef<Awaited<ReturnType<typeof check>> | null>(null);
 
   // Unlock interaction state
@@ -659,12 +691,72 @@ function App() {
     [settings.isLocked]
   );
 
+  // Compare version strings (returns true if newVersion > currentVersion)
+  const isNewerVersion = useCallback((newVersion: string, currentVersion: string): boolean => {
+    const normalize = (v: string) => v.replace(/^v/, "").split(".").map(n => parseInt(n, 10) || 0);
+    const newParts = normalize(newVersion);
+    const currentParts = normalize(currentVersion);
+
+    for (let i = 0; i < Math.max(newParts.length, currentParts.length); i++) {
+      const newPart = newParts[i] || 0;
+      const currentPart = currentParts[i] || 0;
+      if (newPart > currentPart) return true;
+      if (newPart < currentPart) return false;
+    }
+    return false;
+  }, []);
+
+  // GitHub API fallback for update check
+  const checkGitHubRelease = useCallback(async (): Promise<GitHubRelease | null> => {
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
+      );
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.status}`);
+      }
+      return await response.json();
+    } catch (e) {
+      console.error("GitHub API fetch failed:", e);
+      return null;
+    }
+  }, []);
+
+  // Find the appropriate download asset for the current platform
+  const findDownloadAsset = useCallback((assets: GitHubAsset[]): GitHubAsset | null => {
+    const platform = navigator.platform.toLowerCase();
+    const isMac = platform.includes("mac");
+    const isWindows = platform.includes("win");
+
+    for (const asset of assets) {
+      const name = asset.name.toLowerCase();
+      if (isWindows && (name.endsWith(".exe") || name.includes("windows") && name.endsWith(".zip"))) {
+        return asset;
+      }
+      if (isMac && (name.endsWith(".dmg") || name.endsWith(".app.tar.gz"))) {
+        return asset;
+      }
+    }
+
+    // Fallback: return first exe or dmg found
+    for (const asset of assets) {
+      const name = asset.name.toLowerCase();
+      if (name.endsWith(".exe") || name.endsWith(".dmg")) {
+        return asset;
+      }
+    }
+
+    return null;
+  }, []);
+
   // Check for updates
   const checkForAppUpdates = useCallback(async (manual = false) => {
     if (manual) {
       setUpdateStatus("checking");
       setUpdateModalOpen(true);
       setUpdateError("");
+      setGithubDownloadUrl("");
+      setGithubReleaseUrl("");
     }
     try {
       const update = await check();
@@ -677,20 +769,38 @@ function App() {
         setUpdateStatus("upToDate");
       }
     } catch (e: any) {
-      console.error(e);
-      const errMsg = e?.message || String(e);
-      // Treat "no release" as up-to-date (common during dev)
-      if (errMsg.includes("Could not fetch") || errMsg.includes("404")) {
-        if (manual) {
-          setUpdateError("업데이트 서버에 연결할 수 없습니다 (404)");
-          setUpdateStatus("error");
+      console.error("Tauri updater failed:", e);
+
+      // Fallback to GitHub API
+      console.log("Falling back to GitHub API...");
+      const release = await checkGitHubRelease();
+
+      if (release) {
+        const latestVersion = release.tag_name;
+        if (isNewerVersion(latestVersion, CURRENT_VERSION)) {
+          // New version available via GitHub
+          setUpdateVersion(latestVersion.replace(/^v/, ""));
+          setGithubReleaseUrl(release.html_url);
+
+          const asset = findDownloadAsset(release.assets);
+          if (asset) {
+            setGithubDownloadUrl(asset.browser_download_url);
+          }
+
+          setUpdateStatus("githubFallback");
+          if (!manual) setUpdateModalOpen(true);
+        } else if (manual) {
+          setUpdateStatus("upToDate");
         }
       } else if (manual) {
-        setUpdateError(errMsg);
+        // Both Tauri and GitHub failed
+        setUpdateError(settings.language === "ko"
+          ? "업데이트 확인에 실패했습니다. 인터넷 연결을 확인해주세요."
+          : "Failed to check for updates. Please check your internet connection.");
         setUpdateStatus("error");
       }
     }
-  }, []);
+  }, [checkGitHubRelease, findDownloadAsset, isNewerVersion, settings.language]);
 
   const installUpdate = useCallback(async () => {
     if (!updateRef.current) return;
@@ -785,12 +895,17 @@ function App() {
                 {updateStatus === "checking" && t.checking}
                 {updateStatus === "available" &&
                   t.updateAvailable.replace("{version}", updateVersion)}
+                {updateStatus === "githubFallback" &&
+                  t.updateAvailable.replace("{version}", updateVersion)}
                 {updateStatus === "upToDate" && t.upToDate}
                 {updateStatus === "downloading" && t.downloading}
                 {updateStatus === "error" && t.errorParams}
               </div>
               {updateStatus === "available" && (
                 <div className="update-modal-subtitle">{t.installUpdate}</div>
+              )}
+              {updateStatus === "githubFallback" && (
+                <div className="update-modal-subtitle">{t.githubFallbackDesc}</div>
               )}
               {updateStatus === "error" && (
                 <div className="update-modal-error">{updateError}</div>
@@ -809,6 +924,30 @@ function App() {
                       onClick={installUpdate}
                     >
                       {t.install}
+                    </button>
+                  </>
+                )}
+                {updateStatus === "githubFallback" && (
+                  <>
+                    <button
+                      className="update-btn cancel"
+                      onClick={() => setUpdateModalOpen(false)}
+                    >
+                      {t.cancel}
+                    </button>
+                    {githubDownloadUrl && (
+                      <button
+                        className="update-btn primary"
+                        onClick={() => openUrl(githubDownloadUrl)}
+                      >
+                        {t.directDownload}
+                      </button>
+                    )}
+                    <button
+                      className="update-btn secondary"
+                      onClick={() => openUrl(githubReleaseUrl || `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`)}
+                    >
+                      {t.downloadPage}
                     </button>
                   </>
                 )}
