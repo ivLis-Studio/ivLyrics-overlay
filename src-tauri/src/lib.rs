@@ -401,7 +401,7 @@ async fn open_settings_window(app: AppHandle) -> Result<(), String> {
             tauri::WebviewUrl::App("index.html?settings=true".into())
         )
         .title("Settings")
-        .inner_size(400.0, 600.0)
+        .inner_size(480.0, 720.0)
         .resizable(true)
         .decorations(true)
         .always_on_top(true)
@@ -537,7 +537,7 @@ pub fn run() {
                                     tauri::WebviewUrl::App("index.html?settings=true".into())
                                 )
                                 .title("Settings")
-                                .inner_size(400.0, 600.0)
+                                .inner_size(480.0, 720.0)
                                 .resizable(true)
                                 .always_on_top(true)
                                 .build();
@@ -607,6 +607,38 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
+            // Check if main window is off-screen and reset position if necessary
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(position) = window.outer_position() {
+                    // Get available monitors
+                    let monitors = window.available_monitors().unwrap_or_default();
+                    let mut is_visible = false;
+
+                    for monitor in monitors {
+                        let mon_pos = monitor.position();
+                        let mon_size = monitor.size();
+                        
+                        // Check if window is at least partially visible on this monitor
+                        // Allow some margin (50px) for partially visible windows
+                        let margin = 50;
+                        if position.x > mon_pos.x - margin as i32
+                            && position.x < (mon_pos.x + mon_size.width as i32 + margin as i32)
+                            && position.y > mon_pos.y - margin as i32
+                            && position.y < (mon_pos.y + mon_size.height as i32 + margin as i32)
+                        {
+                            is_visible = true;
+                            break;
+                        }
+                    }
+
+                    // If window is not visible on any monitor, reset to default position
+                    if !is_visible {
+                        println!("Main window is off-screen, resetting position to (100, 100)");
+                        let _ = window.set_position(PhysicalPosition::new(100, 100));
+                    }
+                }
+            }
+
             // Start HTTP server in background with custom port
             let app_handle_http = app_handle.clone();
             let http_port = server_port;
@@ -627,7 +659,7 @@ pub fn run() {
                         tauri::WebviewUrl::App("index.html?settings=true".into())
                     )
                     .title("Settings")
-                    .inner_size(400.0, 600.0)
+                    .inner_size(480.0, 720.0)
                     .resizable(true)
                     .decorations(true)
                     .always_on_top(true)

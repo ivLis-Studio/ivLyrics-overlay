@@ -145,7 +145,7 @@ const defaultSettings = {
   inactiveLyricsOpacity: 50, // NEW - 비활성 가사 투명도 (%)
 
   // Layout Customization
-  overlayMaxWidth: 500, // px (0 = no limit)
+  overlayMaxWidth: 0, // px (0 = no limit)
   sectionGap: 8, // gap between track info and lyrics
 
   customCSS: "",
@@ -1097,10 +1097,6 @@ function App() {
           // Layout
           "--section-gap": `${settings.sectionGap}px`,
           "--inactive-opacity": settings.inactiveLyricsOpacity / 100,
-          maxWidth:
-            settings.overlayMaxWidth > 0
-              ? `${settings.overlayMaxWidth}px`
-              : "none",
         } as React.CSSProperties
       }
     >

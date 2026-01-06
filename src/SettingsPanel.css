@@ -61,7 +61,7 @@
     position: relative;
 }
 
-/* Subtle Grid Pattern */
+/* Subtle Grid Pattern - must not block interactions */
 .settings-panel::before {
     content: '';
     position: absolute;
@@ -70,13 +70,31 @@
         linear-gradient(rgba(255, 255, 255, 0.01) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255, 255, 255, 0.01) 1px, transparent 1px);
     background-size: 60px 60px;
-    pointer-events: none;
+    pointer-events: none !important;
     z-index: 0;
 }
 
 .settings-panel>* {
     position: relative;
     z-index: 1;
+    pointer-events: auto;
+}
+
+/* Ensure all interactive elements are clickable */
+.settings-panel button,
+.settings-panel input,
+.settings-panel select,
+.settings-panel textarea,
+.settings-panel label,
+.settings-panel .setting-item,
+.settings-panel .action-btn,
+.settings-panel .lock-button,
+.settings-panel .lang-btn,
+.settings-panel .settings-toggle {
+    pointer-events: auto !important;
+    cursor: pointer;
+    position: relative;
+    z-index: 2;
 }
 
 /* ============================================
@@ -238,6 +256,7 @@
     scroll-behavior: smooth;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    overscroll-behavior: contain;
 }
 
 .settings-content::-webkit-scrollbar {

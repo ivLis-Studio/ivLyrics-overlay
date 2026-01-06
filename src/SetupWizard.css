@@ -17,6 +17,16 @@
     pointer-events: auto;
 }
 
+/* Ensure all interactive elements inside setup wizard are clickable */
+.setup-wizard * {
+    pointer-events: auto;
+}
+
+.setup-wizard button {
+    pointer-events: auto !important;
+    cursor: pointer;
+}
+
 /* ============================================
    Animated Background
    ============================================ */

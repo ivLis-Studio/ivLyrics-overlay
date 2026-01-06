@@ -76,15 +76,19 @@
 }
 
 html,
-body,
-#root {
+body {
   height: 100%;
+  min-height: 100vh;
   background: transparent !important;
   font-family: var(--font-system);
-  user-select: none;
-  pointer-events: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+  min-height: 100vh;
+  background: transparent !important;
 }
 
 /* Custom Scrollbar - Fluent Style */
@@ -112,7 +116,8 @@ body,
    ============================================ */
 .overlay-container {
   width: 100%;
-  height: 100%;
+  height: 100vh;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: var(--section-gap, 8px);
@@ -121,6 +126,8 @@ body,
   transition: opacity var(--transition-normal), background var(--transition-normal);
   overflow: visible;
   pointer-events: none;
+  user-select: none;
+  box-sizing: border-box;
 }
 
 /* Interactive Elements */
