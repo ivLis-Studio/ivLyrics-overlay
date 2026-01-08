@@ -10,11 +10,11 @@ use tauri::{AppHandle, Emitter, Runtime, Manager, PhysicalPosition};
 use tower_http::cors::{Any, CorsLayer};
 
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{TrayIconBuilder, MouseButton};
+use tauri::tray::TrayIconBuilder;
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SWP_SHOWWINDOW};
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{POINT, HWND};
 
 // Track info from Spotify
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -687,17 +687,53 @@ pub fn run() {
 
                 // For always-on-top enforcement
                 let mut always_on_top_ticks: i32 = 0;
-                let always_on_top_interval: i32 = 10; // Every 10 ticks (1 second)
+                let always_on_top_interval: i32 = 5; // Every 5 ticks (0.5 seconds)
 
                 loop {
                     std::thread::sleep(Duration::from_millis(100)); // Poll every 100ms
 
-                    // Enforce always-on-top periodically (every 1 second)
+                    // Enforce always-on-top periodically (every 0.5 seconds)
                     always_on_top_ticks += 1;
                     if always_on_top_ticks >= always_on_top_interval {
                         always_on_top_ticks = 0;
                         if let Some(window) = loop_app_handle.get_webview_window("main") {
+                            // Use Tauri's set_always_on_top as fallback
                             let _ = window.set_always_on_top(true);
+                            
+                            // Windows: Use native API for more reliable always-on-top
+                            #[cfg(target_os = "windows")]
+                            {
+                                if let Ok(hwnd) = window.hwnd() {
+                                    unsafe {
+                                        let _ = SetWindowPos(
+                                            HWND(hwnd.0 as *mut _),
+                                            HWND_TOPMOST,
+                                            0, 0, 0, 0,
+                                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW
+                                        );
+                                    }
+                                }
+                            }
+                            
+                            // macOS: Use native API for more reliable always-on-top
+                            #[cfg(target_os = "macos")]
+                            {
+                                use cocoa::appkit::NSWindow;
+                                use cocoa::base::id;
+                                
+                                if let Ok(ns_window) = window.ns_window() {
+                                    let ns_window = ns_window as id;
+                                    unsafe {
+                                        // Set window level to floating panel level (above normal windows)
+                                        // NSFloatingWindowLevel = 3, but we use a higher value for overlay
+                                        // CGShieldingWindowLevel - 1 = 2147483629 (very high, but below screen saver)
+                                        // NSStatusWindowLevel = 25 (good for overlays)
+                                        // NSScreenSaverWindowLevel = 1000
+                                        // We use a high level that stays above most apps
+                                        ns_window.setLevel_(25); // NSStatusWindowLevel
+                                    }
+                                }
+                            }
                         }
                     }
 

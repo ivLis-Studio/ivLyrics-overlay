@@ -2,7 +2,7 @@
  * Overlay Presets - Pre-configured styles for different use cases
  */
 
-import type { OverlaySettings } from "./App";
+import { defaultSettings, type OverlaySettings } from "./App";
 
 export interface PresetInfo {
     id: string;
@@ -413,12 +413,44 @@ export function getPresetsByCategory(category: PresetInfo["category"]): PresetIn
 }
 
 // Apply preset to current settings
+// Resets to defaults first, then applies preset, preserving user preferences (language, lock state, etc.)
 export function applyPreset(
     currentSettings: OverlaySettings,
     preset: PresetInfo
 ): OverlaySettings {
+    // Settings to preserve from current (user preferences)
+    const preservedSettings = {
+        language: currentSettings.language,
+        isLocked: currentSettings.isLocked,
+        // Keep custom fonts if user has set them (preset can override if needed)
+        originalFontFamily: currentSettings.originalFontFamily,
+        phoneticFontFamily: currentSettings.phoneticFontFamily,
+        translationFontFamily: currentSettings.translationFontFamily,
+        // Keep custom CSS
+        customCSS: currentSettings.customCSS,
+        // Keep unlock timing preferences
+        enableHoverUnlock: currentSettings.enableHoverUnlock,
+        unlockWaitTime: currentSettings.unlockWaitTime,
+        unlockHoldTime: currentSettings.unlockHoldTime,
+        enableAutoLock: currentSettings.enableAutoLock,
+        autoLockDelay: currentSettings.autoLockDelay,
+        // Keep behavior settings
+        hideWhenPaused: currentSettings.hideWhenPaused,
+        showNextTrack: currentSettings.showNextTrack,
+        nextTrackSeconds: currentSettings.nextTrackSeconds,
+        // Keep element order
+        elementOrder: currentSettings.elementOrder,
+        // Keep lyrics display lines
+        lyricsPrevLines: currentSettings.lyricsPrevLines,
+        lyricsNextLines: currentSettings.lyricsNextLines,
+    };
+
     return {
-        ...currentSettings,
+        // Start with defaults (resets all style-related settings)
+        ...defaultSettings,
+        // Apply preserved user preferences
+        ...preservedSettings,
+        // Apply preset settings (overrides defaults for style)
         ...preset.settings,
     };
 }
