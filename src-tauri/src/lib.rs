@@ -1,5 +1,6 @@
 use axum::{
     routing::post,
+    routing::get,
     Json, Router,
     http::Method,
 };
@@ -88,6 +89,8 @@ pub struct ProgressEvent {
 // Shared state for HTTP server
 struct AppState<R: Runtime> {
     app_handle: AppHandle<R>,
+    lyrics: Mutex<Option<LyricsData>>,
+    progress: Mutex<Option<ProgressData>>,
 }
 
 // HTTP Server port state
@@ -227,6 +230,10 @@ async fn handle_lyrics<R: Runtime>(
     axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>,
     Json(lyrics_data): Json<LyricsData>,
 ) -> &'static str {
+    // Store in state
+    if let Ok(mut lock) = state.lyrics.lock() {
+        *lock = Some(lyrics_data.clone());
+    }
     // Emit to frontend
     let _ = state.app_handle.emit("lyrics-update", LyricsEvent { lyrics_data });
     "OK"
@@ -236,14 +243,72 @@ async fn handle_progress<R: Runtime>(
     axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>,
     Json(progress_data): Json<ProgressData>,
 ) -> &'static str {
+    // Store in state
+    if let Ok(mut lock) = state.progress.lock() {
+        *lock = Some(progress_data.clone());
+    }
     // Emit to frontend
     let _ = state.app_handle.emit("progress-update", ProgressEvent { progress_data });
     "OK"
 }
 
+async fn handle_get_lyrics<R: Runtime>(
+    axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>
+) -> Json<Option<LyricsData>> {
+    let lyrics_data = if let Ok(lock) = state.lyrics.lock() {
+        lock.clone()
+    } else {
+        None
+    };
+    Json(lyrics_data)
+}
+
+async fn handle_get_progress<R: Runtime>(
+    axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>
+) -> Json<Option<ProgressData>> {
+    let progress_data = if let Ok(lock) = state.progress.lock() {
+        lock.clone()
+    } else {
+        None
+    };
+    Json(progress_data)
+}
+
+async fn handle_get_now<R: Runtime>(
+    axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>
+) -> Json<Option<LyricLine>> {
+    let lyrics_data = if let Ok(lock) = state.lyrics.lock() {
+        lock.clone()
+    } else {
+        None
+    };
+    let progress_data = if let Ok(lock) = state.progress.lock() {
+        lock.clone()
+    } else {
+        None
+    };
+    if let Some(lyrics_data) = lyrics_data {
+        if let Some(progress_data) = progress_data {
+            for lyric in lyrics_data.lyrics.iter() {
+                let current_time = progress_data.position as i64;
+                let start_time = lyric.start_time as i64;
+                let end_time = lyric.end_time.unwrap_or(lyric.start_time) as i64;
+                if start_time <= current_time && current_time <= end_time {
+                    return Json(Some(lyric.clone()));
+                }
+            }
+        }
+    }
+    Json(None)
+}
+
 // Start HTTP server with custom port
 async fn start_http_server<R: Runtime>(app_handle: AppHandle<R>, port: u16) {
-    let state = Arc::new(AppState { app_handle: app_handle.clone() });
+    let state = Arc::new(AppState {
+        app_handle: app_handle.clone(),
+        lyrics: Mutex::new(None),
+        progress: Mutex::new(None),
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -251,8 +316,10 @@ async fn start_http_server<R: Runtime>(app_handle: AppHandle<R>, port: u16) {
         .allow_headers(Any);
 
     let app = Router::new()
-        .route("/lyrics", post(handle_lyrics::<R>))
-        .route("/progress", post(handle_progress::<R>))
+        .route("/lyrics", post(handle_lyrics::<R>).get(handle_get_lyrics::<R>))
+        .route("/progress", post(handle_progress::<R>).get(handle_get_progress::<R>))
+        .route("/lyrics/now", get(handle_get_now::<R>))
+        .route("/", get(handle_get_now::<R>))
         .layer(cors)
         .with_state(state);
 
