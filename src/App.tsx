@@ -22,7 +22,7 @@ interface GitHubRelease {
 // Repository info
 const GITHUB_OWNER = "ivLis-Studio";
 const GITHUB_REPO = "ivLyrics-overlay";
-const CURRENT_VERSION = "1.1.8";
+const CURRENT_VERSION = __APP_VERSION__;
 import "./App.css";
 import type { TrackInfo, LyricLine, LyricsEvent, ProgressEvent } from "./types";
 import SettingsPanel from "./SettingsPanel";
