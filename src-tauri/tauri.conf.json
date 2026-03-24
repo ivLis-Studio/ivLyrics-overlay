@@ -4,9 +4,9 @@
   "version": "1.2.2",
   "identifier": "com.ivlis.lyrics-plus-overlay",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev:web",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:web",
     "frontendDist": "../dist"
   },
   "app": {

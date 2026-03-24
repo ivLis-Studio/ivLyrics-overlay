@@ -387,28 +387,7 @@ async fn set_auto_lock_delay(
 
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
-    // Check if settings window already exists
-    if let Some(settings_window) = app.get_webview_window("settings") {
-        settings_window.show().map_err(|e| e.to_string())?;
-        settings_window.set_focus().map_err(|e| e.to_string())?;
-        // Force reload to ensure correct query param
-        settings_window.eval("window.location.replace('index.html?settings=true')").map_err(|e| e.to_string())?;
-    } else {
-        // Create new settings window
-        let _settings_window = tauri::WebviewWindowBuilder::new(
-            &app,
-            "settings",
-            tauri::WebviewUrl::App("index.html?settings=true".into())
-        )
-        .title("Settings")
-        .inner_size(480.0, 720.0)
-        .resizable(true)
-        .decorations(true)
-        .always_on_top(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    show_or_create_settings_window(&app)
 }
 
 // Tauri command to get system fonts
@@ -453,10 +432,93 @@ fn load_server_port() -> u16 {
     15000
 }
 
+fn reset_window_if_offscreen<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    fallback_x: i32,
+    fallback_y: i32,
+) {
+    let (Ok(position), Ok(size), Ok(monitors)) = (
+        window.outer_position(),
+        window.outer_size(),
+        window.available_monitors(),
+    ) else {
+        return;
+    };
+
+    let margin = 50;
+    let window_left = position.x;
+    let window_top = position.y;
+    let window_right = position.x + size.width as i32;
+    let window_bottom = position.y + size.height as i32;
+
+    let is_visible = monitors.into_iter().any(|monitor| {
+        let mon_pos = monitor.position();
+        let mon_size = monitor.size();
+        let mon_left = mon_pos.x - margin;
+        let mon_top = mon_pos.y - margin;
+        let mon_right = mon_pos.x + mon_size.width as i32 + margin;
+        let mon_bottom = mon_pos.y + mon_size.height as i32 + margin;
+
+        window_right > mon_left
+            && window_left < mon_right
+            && window_bottom > mon_top
+            && window_top < mon_bottom
+    });
+
+    if !is_visible {
+        println!(
+            "Window '{}' is off-screen, resetting position to ({}, {})",
+            window.label(),
+            fallback_x,
+            fallback_y
+        );
+        let _ = window.set_position(PhysicalPosition::new(fallback_x, fallback_y));
+    }
+}
+
+fn show_or_create_settings_window<R: Runtime, M: Manager<R>>(manager: &M) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = manager
+            .app_handle()
+            .set_activation_policy(tauri::ActivationPolicy::Regular);
+    }
+
+    if let Some(settings_window) = manager.get_webview_window("settings") {
+        reset_window_if_offscreen(&settings_window, 140, 140);
+        settings_window.show().map_err(|e| e.to_string())?;
+        settings_window.set_focus().map_err(|e| e.to_string())?;
+        settings_window
+            .eval("window.location.replace('index.html?settings=true')")
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let settings_window = tauri::WebviewWindowBuilder::new(
+        manager,
+        "settings",
+        tauri::WebviewUrl::App("index.html?settings=true".into()),
+    )
+    .title("Settings")
+    .inner_size(480.0, 720.0)
+    .resizable(true)
+    .decorations(true)
+    .always_on_top(true)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    reset_window_if_offscreen(&settings_window, 140, 140);
+    settings_window.show().map_err(|e| e.to_string())?;
+    settings_window.set_focus().map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Load server port
     let server_port = load_server_port();
+    let start_minimized = load_start_minimized_setting();
 
     // Shared state for HTTP server port
     let port_state = Arc::new(Mutex::new(HttpServerPort {
@@ -526,22 +588,7 @@ pub fn run() {
                              }
                         },
                         "settings" => {
-                            if let Some(settings_window) = app.get_webview_window("settings") {
-                                settings_window.show().unwrap();
-                                settings_window.set_focus().unwrap();
-                                let _ = settings_window.eval("window.location.replace('index.html?settings=true')");
-                            } else {
-                                let _ = tauri::WebviewWindowBuilder::new(
-                                    app,
-                                    "settings",
-                                    tauri::WebviewUrl::App("index.html?settings=true".into())
-                                )
-                                .title("Settings")
-                                .inner_size(480.0, 720.0)
-                                .resizable(true)
-                                .always_on_top(true)
-                                .build();
-                            }
+                            let _ = show_or_create_settings_window(app);
                         },
                         "toggle_lock" => {
                              let state = app.state::<std::sync::Arc<std::sync::Mutex<AppLockState>>>();
@@ -571,7 +618,11 @@ pub fn run() {
             #[allow(deprecated)]
             {
                 use tauri::ActivationPolicy;
-                app.set_activation_policy(ActivationPolicy::Accessory);
+                app.set_activation_policy(if start_minimized {
+                    ActivationPolicy::Accessory
+                } else {
+                    ActivationPolicy::Regular
+                });
 
                 use cocoa::appkit::{NSWindow, NSWindowCollectionBehavior, NSColor, NSWindowStyleMask, NSWindowTitleVisibility};
                 use cocoa::base::{id, nil};
@@ -579,28 +630,30 @@ pub fn run() {
                 if let Some(window) = app.get_webview_window("main") {
                     // Try to cast to NSWindow id
                     // Note: window.ns_window() returns a raw pointer/handle which we cast to id
-                    let ns_window_handle = window.ns_window().unwrap();
-                    let ns_window = ns_window_handle as id;
-                    
-                    unsafe {
-                        // Force Transparency
-                        ns_window.setOpaque_(cocoa::base::NO);
-                        ns_window.setBackgroundColor_(NSColor::clearColor(nil));
-                        ns_window.setHasShadow_(cocoa::base::NO);
+                    if let Ok(ns_window_handle) = window.ns_window() {
+                        let ns_window = ns_window_handle as id;
 
-                        // Ensure style mask allows full size content
-                        let style_mask = ns_window.styleMask() | NSWindowStyleMask::NSFullSizeContentViewWindowMask;
-                        ns_window.setStyleMask_(style_mask);
+                        unsafe {
+                            // Force Transparency
+                            ns_window.setOpaque_(cocoa::base::NO);
+                            ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+                            ns_window.setHasShadow_(cocoa::base::NO);
 
-                        ns_window.setTitlebarAppearsTransparent_(cocoa::base::YES);
-                        ns_window.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
-                        
-                        // Set Collection Behavior: CanJoinAllSpaces (1<<0) | Stationary (1<<4) | IgnoresCycle (1<<6)
-                        // This makes it visible on all desktops and not participate in window cycling
-                        let behavior = NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces |
-                                       NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary |
-                                       NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle;
-                        ns_window.setCollectionBehavior_(behavior);
+                            // Ensure style mask allows full size content
+                            let style_mask = ns_window.styleMask() | NSWindowStyleMask::NSFullSizeContentViewWindowMask;
+                            ns_window.setStyleMask_(style_mask);
+
+                            ns_window.setTitlebarAppearsTransparent_(cocoa::base::YES);
+                            ns_window.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
+
+                            // Keep the overlay on every Space without participating in normal app switching.
+                            let behavior = NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                           NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary |
+                                           NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle;
+                            ns_window.setCollectionBehavior_(behavior);
+                        }
+                    } else {
+                        eprintln!("Failed to acquire macOS main window handle during setup");
                     }
                 }
             }
@@ -609,34 +662,7 @@ pub fn run() {
 
             // Check if main window is off-screen and reset position if necessary
             if let Some(window) = app.get_webview_window("main") {
-                if let Ok(position) = window.outer_position() {
-                    // Get available monitors
-                    let monitors = window.available_monitors().unwrap_or_default();
-                    let mut is_visible = false;
-
-                    for monitor in monitors {
-                        let mon_pos = monitor.position();
-                        let mon_size = monitor.size();
-                        
-                        // Check if window is at least partially visible on this monitor
-                        // Allow some margin (50px) for partially visible windows
-                        let margin = 50;
-                        if position.x > mon_pos.x - margin as i32
-                            && position.x < (mon_pos.x + mon_size.width as i32 + margin as i32)
-                            && position.y > mon_pos.y - margin as i32
-                            && position.y < (mon_pos.y + mon_size.height as i32 + margin as i32)
-                        {
-                            is_visible = true;
-                            break;
-                        }
-                    }
-
-                    // If window is not visible on any monitor, reset to default position
-                    if !is_visible {
-                        println!("Main window is off-screen, resetting position to (100, 100)");
-                        let _ = window.set_position(PhysicalPosition::new(100, 100));
-                    }
-                }
+                reset_window_if_offscreen(&window, 100, 100);
             }
 
             // Start HTTP server in background with custom port
@@ -647,322 +673,222 @@ pub fn run() {
             });
 
             // Auto-open settings window on startup (unless startMinimized is enabled)
-            let start_minimized = load_start_minimized_setting();
             if !start_minimized {
                 let app_handle_settings = app_handle.clone();
                 // Delay slightly to ensure main window is ready
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(500));
-                    let _ = tauri::WebviewWindowBuilder::new(
-                        &app_handle_settings,
-                        "settings",
-                        tauri::WebviewUrl::App("index.html?settings=true".into())
-                    )
-                    .title("Settings")
-                    .inner_size(480.0, 720.0)
-                    .resizable(true)
-                    .decorations(true)
-                    .always_on_top(true)
-                    .build();
+                    let app_handle_main = app_handle_settings.clone();
+                    let _ = app_handle_settings.run_on_main_thread(move || {
+                        let _ = show_or_create_settings_window(&app_handle_main);
+                    });
                 });
             }
 
-            // Start Mouse Polling Thread
-            let loop_lock_state = lock_state.clone();
-            let loop_app_handle = app_handle.clone();
+            #[cfg(not(target_os = "macos"))]
+            {
+                // The polling thread touches native window APIs directly.
+                // On macOS 26 this traps with "Must only be used from the main thread",
+                // so we keep the compatibility path Windows-only for now.
+                let loop_lock_state = lock_state.clone();
+                let loop_app_handle = app_handle.clone();
 
-            std::thread::spawn(move || {
-                let mut was_hovering = false;
-                
-                // For idle detection (hover unlock)
-                let mut last_mouse_x = 0;
-                let mut last_mouse_y = 0;
-                let mut idle_ticks = 0;
-                let _max_idle_ticks = 30; // 30 * 100ms = 3 seconds
+                std::thread::spawn(move || {
+                    let mut was_hovering = false;
+                    let mut last_mouse_x = 0;
+                    let mut last_mouse_y = 0;
+                    let mut idle_ticks = 0;
+                    let _max_idle_ticks = 30;
+                    let mut last_window_x: i32 = 0;
+                    let mut last_window_y: i32 = 0;
+                    let mut auto_lock_idle_ticks: i32 = 0;
+                    let mut always_on_top_ticks: i32 = 0;
+                    let always_on_top_interval: i32 = 5;
 
-                // For auto-lock (window position tracking)
-                let mut last_window_x: i32 = 0;
-                let mut last_window_y: i32 = 0;
-                let mut auto_lock_idle_ticks: i32 = 0;
+                    loop {
+                        std::thread::sleep(Duration::from_millis(100));
 
-                // For always-on-top enforcement
-                let mut always_on_top_ticks: i32 = 0;
-                let always_on_top_interval: i32 = 5; // Every 5 ticks (0.5 seconds)
+                        always_on_top_ticks += 1;
+                        if always_on_top_ticks >= always_on_top_interval {
+                            always_on_top_ticks = 0;
+                            if let Some(window) = loop_app_handle.get_webview_window("main") {
+                                let _ = window.set_always_on_top(true);
 
-                loop {
-                    std::thread::sleep(Duration::from_millis(100)); // Poll every 100ms
-
-                    // Enforce always-on-top periodically (every 0.5 seconds)
-                    always_on_top_ticks += 1;
-                    if always_on_top_ticks >= always_on_top_interval {
-                        always_on_top_ticks = 0;
-                        if let Some(window) = loop_app_handle.get_webview_window("main") {
-                            // Use Tauri's set_always_on_top as fallback
-                            let _ = window.set_always_on_top(true);
-                            
-                            // Windows: Use native API for more reliable always-on-top
-                            #[cfg(target_os = "windows")]
-                            {
-                                if let Ok(hwnd) = window.hwnd() {
-                                    unsafe {
-                                        let _ = SetWindowPos(
-                                            HWND(hwnd.0 as *mut _),
-                                            HWND_TOPMOST,
-                                            0, 0, 0, 0,
-                                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW
-                                        );
-                                    }
-                                }
-                            }
-                            
-                            // macOS: Use native API for more reliable always-on-top
-                            #[cfg(target_os = "macos")]
-                            {
-                                use cocoa::appkit::NSWindow;
-                                use cocoa::base::id;
-                                
-                                if let Ok(ns_window) = window.ns_window() {
-                                    let ns_window = ns_window as id;
-                                    unsafe {
-                                        // Set window level to floating panel level (above normal windows)
-                                        // NSFloatingWindowLevel = 3, but we use a higher value for overlay
-                                        // CGShieldingWindowLevel - 1 = 2147483629 (very high, but below screen saver)
-                                        // NSStatusWindowLevel = 25 (good for overlays)
-                                        // NSScreenSaverWindowLevel = 1000
-                                        // We use a high level that stays above most apps
-                                        ns_window.setLevel_(25); // NSStatusWindowLevel
+                                #[cfg(target_os = "windows")]
+                                {
+                                    if let Ok(hwnd) = window.hwnd() {
+                                        unsafe {
+                                            let _ = SetWindowPos(
+                                                HWND(hwnd.0 as *mut _),
+                                                HWND_TOPMOST,
+                                                0,
+                                                0,
+                                                0,
+                                                0,
+                                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                                            );
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    let mut current_hovering = false;
-                    let mut current_x = 0;
-                    let mut current_y = 0;
-                    
-                    // --- Windows Logic ---
-                    #[cfg(target_os = "windows")]
-                    {
-                        if let Some(window) = loop_app_handle.get_webview_window("main") {
-                            let mut point = POINT::default();
-                            let success = unsafe { GetCursorPos(&mut point) };
+                        let mut current_hovering = false;
+                        let mut current_x = 0;
+                        let mut current_y = 0;
 
-                            if success.is_ok() {
-                                if let (Ok(win_pos), Ok(win_size)) = (window.outer_position(), window.inner_size()) {
-                                    let rel_x = point.x - win_pos.x;
-                                    let rel_y = point.y - win_pos.y;
-                                    
-                                    current_x = point.x;
-                                    current_y = point.y;
+                        #[cfg(target_os = "windows")]
+                        {
+                            if let Some(window) = loop_app_handle.get_webview_window("main") {
+                                let mut point = POINT::default();
+                                let success = unsafe { GetCursorPos(&mut point) };
 
-                                    // Check global hover
-                                    current_hovering = rel_x >= 0 && rel_x < win_size.width as i32 && 
-                                                      rel_y >= 0 && rel_y < win_size.height as i32;
-                                    
-                                    // Interactive Zone Logic (Keep pass-through if locked)
+                                if success.is_ok() {
+                                    if let (Ok(win_pos), Ok(win_size)) =
+                                        (window.outer_position(), window.inner_size())
                                     {
+                                        let rel_x = point.x - win_pos.x;
+                                        let rel_y = point.y - win_pos.y;
+
+                                        current_x = point.x;
+                                        current_y = point.y;
+                                        current_hovering = rel_x >= 0
+                                            && rel_x < win_size.width as i32
+                                            && rel_y >= 0
+                                            && rel_y < win_size.height as i32;
+
                                         if let Ok(mut state) = loop_lock_state.lock() {
                                             if state.is_locked {
                                                 if state.is_interactive {
                                                     let _ = window.set_ignore_cursor_events(true);
                                                     state.is_interactive = false;
                                                 }
-                                            } else {
-                                                if !state.is_interactive {
-                                                    let _ = window.set_ignore_cursor_events(false);
-                                                    state.is_interactive = true;
-                                                }
+                                            } else if !state.is_interactive {
+                                                let _ = window.set_ignore_cursor_events(false);
+                                                state.is_interactive = true;
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // --- macOS Logic ---
-                    #[cfg(target_os = "macos")]
-                    {
-                        use cocoa::base::{id, nil};
-                        use cocoa::appkit::{NSEvent, NSWindow};
+                        if current_hovering != was_hovering {
+                            was_hovering = current_hovering;
+                            let _ = loop_app_handle.emit("overlay-hover", current_hovering);
 
-                        if let Some(window) = loop_app_handle.get_webview_window("main") {
-                             #[allow(deprecated)]
-                             unsafe {
-                                let mouse_loc = NSEvent::mouseLocation(nil); 
-                                let ns_window: id = window.ns_window().unwrap() as id;
-                                let frame = ns_window.frame();
-                                
-                                current_x = mouse_loc.x as i32;
-                                current_y = mouse_loc.y as i32;
+                            if !current_hovering {
+                                idle_ticks = 0;
+                                let _ = loop_app_handle.emit("unlock-progress", 0);
+                            }
+                        }
 
-                                current_hovering = mouse_loc.x >= frame.origin.x && 
-                                                  mouse_loc.x <= (frame.origin.x + frame.size.width) &&
-                                                  mouse_loc.y >= frame.origin.y && 
-                                                  mouse_loc.y <= (frame.origin.y + frame.size.height);
+                        let (is_locked, wait_time, hold_time, hover_unlock_enabled) = loop_lock_state
+                            .lock()
+                            .map(|s| {
+                                (
+                                    s.is_locked,
+                                    s.unlock_wait_time,
+                                    s.unlock_hold_time,
+                                    s.enable_hover_unlock,
+                                )
+                            })
+                            .unwrap_or((true, 1.2, 3.0, true));
 
+                        let wait_ticks = (wait_time * 10.0) as i32;
+                        let hold_ticks = (hold_time * 10.0) as i32;
+                        let total_ticks = wait_ticks + hold_ticks;
+
+                        if current_hovering && is_locked && hover_unlock_enabled {
+                            let dist_sq =
+                                (current_x - last_mouse_x).pow(2) + (current_y - last_mouse_y).pow(2);
+
+                            if dist_sq < 25 {
+                                idle_ticks += 1;
+                            } else {
+                                idle_ticks = 0;
+                            }
+
+                            last_mouse_x = current_x;
+                            last_mouse_y = current_y;
+
+                            let progress = if idle_ticks < wait_ticks {
+                                0.0
+                            } else {
+                                let effective_ticks = idle_ticks - wait_ticks;
+                                ((effective_ticks as f32 / hold_ticks as f32) * 100.0).min(100.0)
+                            };
+
+                            let _ = loop_app_handle.emit("unlock-progress", progress);
+
+                            if idle_ticks >= total_ticks {
                                 if let Ok(mut state) = loop_lock_state.lock() {
-                                    if state.is_locked {
-                                        if state.is_interactive {
-                                            let _ = window.set_ignore_cursor_events(true);
-                                            state.is_interactive = false;
-                                        }
-                                    } else {
-                                         if !state.is_interactive {
-                                            let _ = window.set_ignore_cursor_events(false);
-                                            state.is_interactive = true;
-                                        }
+                                    state.is_locked = false;
+                                    let _ = loop_app_handle.emit("lock-state-update", false);
+                                    idle_ticks = 0;
+                                }
+                            }
+                        } else {
+                            if idle_ticks > 0 {
+                                idle_ticks = 0;
+                                let _ = loop_app_handle.emit("unlock-progress", 0.0);
+                            }
+                            last_mouse_x = current_x;
+                            last_mouse_y = current_y;
+                        }
+
+                        let (is_locked_now, enable_auto_lock, auto_lock_delay) = loop_lock_state
+                            .lock()
+                            .map(|s| (s.is_locked, s.enable_auto_lock, s.auto_lock_delay))
+                            .unwrap_or((true, true, 3.0));
+
+                        if !is_locked_now && enable_auto_lock {
+                            let mut current_win_x: i32 = 0;
+                            let mut current_win_y: i32 = 0;
+
+                            #[cfg(target_os = "windows")]
+                            {
+                                if let Some(window) = loop_app_handle.get_webview_window("main") {
+                                    if let Ok(pos) = window.outer_position() {
+                                        current_win_x = pos.x;
+                                        current_win_y = pos.y;
+                                    }
+                                }
+                            }
+
+                            if current_win_x == last_window_x && current_win_y == last_window_y {
+                                auto_lock_idle_ticks += 1;
+                            } else {
+                                auto_lock_idle_ticks = 0;
+                                last_window_x = current_win_x;
+                                last_window_y = current_win_y;
+                            }
+
+                            let required_ticks = (auto_lock_delay * 10.0) as i32;
+
+                            if auto_lock_idle_ticks >= required_ticks {
+                                if let Ok(mut state) = loop_lock_state.lock() {
+                                    state.is_locked = true;
+                                    let _ = loop_app_handle.emit("lock-state-update", true);
+                                    auto_lock_idle_ticks = 0;
+                                }
+                            }
+                        } else {
+                            auto_lock_idle_ticks = 0;
+
+                            #[cfg(target_os = "windows")]
+                            {
+                                if let Some(window) = loop_app_handle.get_webview_window("main") {
+                                    if let Ok(pos) = window.outer_position() {
+                                        last_window_x = pos.x;
+                                        last_window_y = pos.y;
                                     }
                                 }
                             }
                         }
                     }
-
-                    // --- Common Logic ---
-                    // 1. Emit Hover Event (Opacity Control)
-                    if current_hovering != was_hovering {
-                        was_hovering = current_hovering;
-                        let _ = loop_app_handle.emit("overlay-hover", current_hovering);
-                        
-                        // Reset idle if left
-                        if !current_hovering {
-                            idle_ticks = 0;
-                            let _ = loop_app_handle.emit("unlock-progress", 0);
-                        }
-                    }
-
-                    // 2. Idle Detection (Unlock Progress)
-                    // Only calculate if currently hovering AND LOCKED AND hover unlock is enabled
-                    let (is_locked, wait_time, hold_time, hover_unlock_enabled) = loop_lock_state.lock()
-                        .map(|s| (s.is_locked, s.unlock_wait_time, s.unlock_hold_time, s.enable_hover_unlock))
-                        .unwrap_or((true, 1.2, 3.0, true));
-                    
-                    // Convert seconds to ticks (100ms per tick)
-                    let wait_ticks = (wait_time * 10.0) as i32;
-                    let hold_ticks = (hold_time * 10.0) as i32;
-                    let total_ticks = wait_ticks + hold_ticks;
-
-                    if current_hovering && is_locked && hover_unlock_enabled {
-                        // Check if mouse moved significantly (allow small jitter approx 5px radius)
-                        let dist_sq = (current_x - last_mouse_x).pow(2) + (current_y - last_mouse_y).pow(2);
-                        
-                        // Increase sensitivity check
-                        if dist_sq < 25 { 
-                            idle_ticks += 1;
-                        } else {
-                            idle_ticks = 0; // Moved -> Reset
-                        }
-                        
-                        // Update last pos
-                        last_mouse_x = current_x;
-                        last_mouse_y = current_y;
-
-                        // Calculate Progress
-                        let progress = if idle_ticks < wait_ticks {
-                            0.0
-                        } else {
-                            let effective_ticks = idle_ticks - wait_ticks;
-                            ((effective_ticks as f32 / hold_ticks as f32) * 100.0).min(100.0)
-                        };
-
-                        let _ = loop_app_handle.emit("unlock-progress", progress);
-
-                        if idle_ticks >= total_ticks {
-                            // Trigger Unlock
-                             if let Ok(mut state) = loop_lock_state.lock() {
-                                 state.is_locked = false;
-                                 let _ = loop_app_handle.emit("lock-state-update", false);
-                                 // Force reset ticks to avoid repeated toggling
-                                 idle_ticks = 0;
-                             }
-                        }
-
-                    } else {
-                        // Not hovering or Not locked
-                        if idle_ticks > 0 {
-                            idle_ticks = 0;
-                            let _ = loop_app_handle.emit("unlock-progress", 0.0);
-                        }
-                        last_mouse_x = current_x;
-                        last_mouse_y = current_y;
-                    }
-
-                    // 3. Auto-lock logic: Lock automatically after idle when unlocked
-                    let (is_locked_now, enable_auto_lock, auto_lock_delay) = loop_lock_state.lock()
-                        .map(|s| (s.is_locked, s.enable_auto_lock, s.auto_lock_delay))
-                        .unwrap_or((true, true, 3.0));
-                    
-                    if !is_locked_now && enable_auto_lock {
-                        // Get current window position
-                        let mut current_win_x: i32 = 0;
-                        let mut current_win_y: i32 = 0;
-                        
-                        #[cfg(target_os = "windows")]
-                        {
-                            if let Some(window) = loop_app_handle.get_webview_window("main") {
-                                if let Ok(pos) = window.outer_position() {
-                                    current_win_x = pos.x;
-                                    current_win_y = pos.y;
-                                }
-                            }
-                        }
-                        
-                        #[cfg(target_os = "macos")]
-                        {
-                            if let Some(window) = loop_app_handle.get_webview_window("main") {
-                                if let Ok(pos) = window.outer_position() {
-                                    current_win_x = pos.x;
-                                    current_win_y = pos.y;
-                                }
-                            }
-                        }
-                        
-                        // Check if window position changed
-                        if current_win_x == last_window_x && current_win_y == last_window_y {
-                            auto_lock_idle_ticks += 1;
-                        } else {
-                            // Window moved -> reset counter
-                            auto_lock_idle_ticks = 0;
-                            last_window_x = current_win_x;
-                            last_window_y = current_win_y;
-                        }
-                        
-                        // Calculate required ticks (100ms per tick)
-                        let required_ticks = (auto_lock_delay * 10.0) as i32;
-                        
-                        if auto_lock_idle_ticks >= required_ticks {
-                            // Trigger auto-lock
-                            if let Ok(mut state) = loop_lock_state.lock() {
-                                state.is_locked = true;
-                                let _ = loop_app_handle.emit("lock-state-update", true);
-                                auto_lock_idle_ticks = 0;
-                            }
-                        }
-                    } else {
-                        // Locked or auto-lock disabled -> reset counter and update position
-                        auto_lock_idle_ticks = 0;
-                        #[cfg(target_os = "windows")]
-                        {
-                            if let Some(window) = loop_app_handle.get_webview_window("main") {
-                                if let Ok(pos) = window.outer_position() {
-                                    last_window_x = pos.x;
-                                    last_window_y = pos.y;
-                                }
-                            }
-                        }
-                        #[cfg(target_os = "macos")]
-                        {
-                            if let Some(window) = loop_app_handle.get_webview_window("main") {
-                                if let Ok(pos) = window.outer_position() {
-                                    last_window_x = pos.x;
-                                    last_window_y = pos.y;
-                                }
-                            }
-                        }
-                    }
-                }
-            });
+                });
+            }
 
             Ok(())
         })

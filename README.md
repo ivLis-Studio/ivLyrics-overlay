@@ -26,12 +26,12 @@
 2. 개발 모드로 실행 (Frontend + Backend):
 
    ```bash
-   npm run tauri dev
+   npm run dev
    ```
 
 3. 프로덕션 빌드:
    ```bash
-   npm run tauri build
+   npm run build:app
    ```
 
 ### 문제 해결 (Troubleshooting)
