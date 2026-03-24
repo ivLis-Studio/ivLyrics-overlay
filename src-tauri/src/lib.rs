@@ -4,7 +4,7 @@ use axum::{
     http::Method,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime, Manager, PhysicalPosition};
 use tower_http::cors::{Any, CorsLayer};
@@ -98,6 +98,7 @@ struct HttpServerPort {
 // Internal state for lock logic
 struct AppLockState {
     is_locked: bool,
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     is_interactive: bool, // Track current interactive state to avoid spamming calls
     unlock_wait_time: f32, // Wait time in seconds before progress starts
     unlock_hold_time: f32, // Hold time in seconds to complete unlock
@@ -476,6 +477,103 @@ fn reset_window_if_offscreen<R: Runtime>(
     }
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+struct MacWindowSnapshot {
+    current_x: i32,
+    current_y: i32,
+    current_hovering: bool,
+    window_x: i32,
+    window_y: i32,
+}
+
+#[cfg(target_os = "macos")]
+fn run_on_main_thread_result<R, T, F>(app_handle: &AppHandle<R>, f: F) -> Result<T, String>
+where
+    R: Runtime + 'static,
+    T: Send + 'static,
+    F: FnOnce(&AppHandle<R>) -> Result<T, String> + Send + 'static,
+{
+    let (tx, rx) = mpsc::sync_channel(1);
+    let handle = app_handle.clone();
+    app_handle
+        .run_on_main_thread(move || {
+            let _ = tx.send(f(&handle));
+        })
+        .map_err(|e| e.to_string())?;
+
+    rx.recv().map_err(|e| e.to_string())?
+}
+
+#[cfg(target_os = "macos")]
+fn macos_window_snapshot<R: Runtime + 'static>(
+    app_handle: &AppHandle<R>,
+) -> Result<Option<MacWindowSnapshot>, String> {
+    #[allow(deprecated)]
+    run_on_main_thread_result(app_handle, |handle| {
+        use cocoa::appkit::{NSEvent, NSWindow};
+        use cocoa::base::{id, nil};
+
+        let Some(window) = handle.get_webview_window("main") else {
+            return Ok(None);
+        };
+
+        let mouse_loc = unsafe { NSEvent::mouseLocation(nil) };
+        let ns_window_handle = window.ns_window().map_err(|e| e.to_string())?;
+        let ns_window: id = ns_window_handle as id;
+        let frame = unsafe { ns_window.frame() };
+        let position = window.outer_position().map_err(|e| e.to_string())?;
+
+        Ok(Some(MacWindowSnapshot {
+            current_x: mouse_loc.x as i32,
+            current_y: mouse_loc.y as i32,
+            current_hovering: mouse_loc.x >= frame.origin.x
+                && mouse_loc.x <= (frame.origin.x + frame.size.width)
+                && mouse_loc.y >= frame.origin.y
+                && mouse_loc.y <= (frame.origin.y + frame.size.height),
+            window_x: position.x,
+            window_y: position.y,
+        }))
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_set_ignore_cursor_events<R: Runtime + 'static>(
+    app_handle: &AppHandle<R>,
+    ignore: bool,
+) -> Result<(), String> {
+    run_on_main_thread_result(app_handle, move |handle| {
+        if let Some(window) = handle.get_webview_window("main") {
+            window.set_ignore_cursor_events(ignore).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_refresh_window_level<R: Runtime + 'static>(
+    app_handle: &AppHandle<R>,
+) -> Result<(), String> {
+    #[allow(deprecated)]
+    run_on_main_thread_result(app_handle, |handle| {
+        use cocoa::appkit::NSWindow;
+        use cocoa::base::id;
+
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.set_always_on_top(true);
+
+            if let Ok(ns_window) = window.ns_window() {
+                let ns_window = ns_window as id;
+                unsafe {
+                    ns_window.setLevel_(25);
+                }
+            }
+        }
+
+        Ok(())
+    })
+}
+
 fn show_or_create_settings_window<R: Runtime, M: Manager<R>>(manager: &M) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -685,11 +783,10 @@ pub fn run() {
                 });
             }
 
-            #[cfg(not(target_os = "macos"))]
             {
                 // The polling thread touches native window APIs directly.
-                // On macOS 26 this traps with "Must only be used from the main thread",
-                // so we keep the compatibility path Windows-only for now.
+                // On macOS 26 every AppKit access must stay on the main thread,
+                // so the macOS path below dispatches native calls via run_on_main_thread.
                 let loop_lock_state = lock_state.clone();
                 let loop_app_handle = app_handle.clone();
 
@@ -711,6 +808,10 @@ pub fn run() {
                         always_on_top_ticks += 1;
                         if always_on_top_ticks >= always_on_top_interval {
                             always_on_top_ticks = 0;
+                            #[cfg(target_os = "macos")]
+                            let _ = macos_refresh_window_level(&loop_app_handle);
+
+                            #[cfg(not(target_os = "macos"))]
                             if let Some(window) = loop_app_handle.get_webview_window("main") {
                                 let _ = window.set_always_on_top(true);
 
@@ -768,6 +869,27 @@ pub fn run() {
                                                 state.is_interactive = true;
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        #[cfg(target_os = "macos")]
+                        {
+                            if let Ok(Some(snapshot)) = macos_window_snapshot(&loop_app_handle) {
+                                current_x = snapshot.current_x;
+                                current_y = snapshot.current_y;
+                                current_hovering = snapshot.current_hovering;
+
+                                if let Ok(mut state) = loop_lock_state.lock() {
+                                    if state.is_locked {
+                                        if state.is_interactive {
+                                            let _ = macos_set_ignore_cursor_events(&loop_app_handle, true);
+                                            state.is_interactive = false;
+                                        }
+                                    } else if !state.is_interactive {
+                                        let _ = macos_set_ignore_cursor_events(&loop_app_handle, false);
+                                        state.is_interactive = true;
                                     }
                                 }
                             }
@@ -856,6 +978,14 @@ pub fn run() {
                                 }
                             }
 
+                            #[cfg(target_os = "macos")]
+                            {
+                                if let Ok(Some(snapshot)) = macos_window_snapshot(&loop_app_handle) {
+                                    current_win_x = snapshot.window_x;
+                                    current_win_y = snapshot.window_y;
+                                }
+                            }
+
                             if current_win_x == last_window_x && current_win_y == last_window_y {
                                 auto_lock_idle_ticks += 1;
                             } else {
@@ -883,6 +1013,14 @@ pub fn run() {
                                         last_window_x = pos.x;
                                         last_window_y = pos.y;
                                     }
+                                }
+                            }
+
+                            #[cfg(target_os = "macos")]
+                            {
+                                if let Ok(Some(snapshot)) = macos_window_snapshot(&loop_app_handle) {
+                                    last_window_x = snapshot.window_x;
+                                    last_window_y = snapshot.window_y;
                                 }
                             }
                         }
