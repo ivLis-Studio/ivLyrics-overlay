@@ -148,6 +148,11 @@ const strings = {
         visibilitySection: "표시 조건",
         hideWhenPaused: "일시정지 시 숨기기",
         hideWhenPausedDesc: "음악이 멈추면 오버레이 숨김",
+        hoverAppearance: "마우스 오버 시 표시",
+        hoverAppearanceDesc: "잠긴 오버레이에 마우스를 올렸을 때 표시 방식",
+        hoverTransparent: "투명",
+        hoverTranslucent: "반투명",
+        hoverUnchanged: "그대로",
         showNextTrack: "다음 곡 미리보기",
         showNextTrackDesc: "곡이 끝나기 전 다음 곡 정보 표시",
         nextTrackTime: "미리보기 시간",
@@ -379,6 +384,11 @@ const strings = {
         visibilitySection: "Visibility",
         hideWhenPaused: "Hide When Paused",
         hideWhenPausedDesc: "Hide overlay when music is paused",
+        hoverAppearance: "Appearance on Hover",
+        hoverAppearanceDesc: "How the locked overlay appears while the mouse is over it",
+        hoverTransparent: "Transparent",
+        hoverTranslucent: "Translucent",
+        hoverUnchanged: "Unchanged",
         showNextTrack: "Show Next Track",
         showNextTrackDesc: "Preview next track before song ends",
         nextTrackTime: "Preview Time",
@@ -649,6 +659,8 @@ function SegmentedControl<T extends string>({
             {options.map((opt) => (
                 <button
                     key={opt.value}
+                    type="button"
+                    aria-pressed={value === opt.value}
                     className={value === opt.value ? "active" : ""}
                     onClick={() => onChange(opt.value)}
                 >
@@ -1512,6 +1524,17 @@ export default function SettingsPanel({
                             <SettingSection title={t.visibilitySection} delay={0}>
                                 <SettingItem label={t.hideWhenPaused} description={t.hideWhenPausedDesc}>
                                     <Toggle checked={settings.hideWhenPaused} onChange={(v) => update("hideWhenPaused", v)} />
+                                </SettingItem>
+                                <SettingItem label={t.hoverAppearance} description={t.hoverAppearanceDesc} column>
+                                    <SegmentedControl
+                                        options={[
+                                            { value: "transparent", label: t.hoverTransparent },
+                                            { value: "translucent", label: t.hoverTranslucent },
+                                            { value: "unchanged", label: t.hoverUnchanged },
+                                        ]}
+                                        value={settings.hoverAppearance}
+                                        onChange={(v) => update("hoverAppearance", v)}
+                                    />
                                 </SettingItem>
                                 <SettingItem label={t.showNextTrack} description={t.showNextTrackDesc}>
                                     <Toggle checked={settings.showNextTrack} onChange={(v) => update("showNextTrack", v)} />

@@ -112,6 +112,7 @@ const defaultSettings = {
 
   // Visibility Options
   hideWhenPaused: false,
+  hoverAppearance: "translucent" as "transparent" | "translucent" | "unchanged",
   showNextTrack: true,
   nextTrackSeconds: 15,
 
@@ -1006,10 +1007,15 @@ function App() {
   // Calculate visibility
   // Hide when: paused (if setting enabled), OR no data received for 5+ seconds
   const shouldHide = (settings.hideWhenPaused && !isPlaying && track !== null) || isDataTimedOut;
+  const hoverOpacity = settings.hoverAppearance === "transparent"
+    ? 0
+    : settings.hoverAppearance === "unchanged"
+      ? 1
+      : 0.2;
   const calculatedOpacity = shouldHide
     ? 0
     : isHovering && settings.isLocked
-      ? 0.2
+      ? hoverOpacity
       : 1;
 
   // Determine if we should show next track info instead of current track
