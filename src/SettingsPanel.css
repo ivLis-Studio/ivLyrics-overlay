@@ -51,7 +51,9 @@
     background: linear-gradient(180deg,
             rgba(18, 18, 22, 0.99) 0%,
             rgba(10, 10, 14, 1) 100%);
-    min-height: 100vh;
+    /* Keep vertical overflow in .settings-content instead of the document. */
+    height: 100vh;
+    min-height: 0;
     color: var(--text-primary);
     font-family: var(--font-system);
     pointer-events: auto;
@@ -244,6 +246,7 @@
    ============================================ */
 .settings-content-wrapper {
     flex: 1;
+    min-height: 0;
     position: relative;
     overflow: hidden;
 }
@@ -254,13 +257,30 @@
     overflow-x: hidden;
     padding: 0 16px 40px;
     scroll-behavior: smooth;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
     overscroll-behavior: contain;
 }
 
 .settings-content::-webkit-scrollbar {
-    display: none;
+    width: 8px;
+}
+
+.settings-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.settings-content::-webkit-scrollbar-thumb {
+    min-height: 40px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.3);
+    background-clip: padding-box;
+}
+
+.settings-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.45);
+    background-clip: padding-box;
 }
 
 /* ============================================
