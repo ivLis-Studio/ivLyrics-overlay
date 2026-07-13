@@ -16,6 +16,7 @@ export interface LyricLine {
 }
 
 export interface LyricsData {
+    trackUri?: string | null;
     track: TrackInfo;
     lyrics: LyricLine[];
     isSynced: boolean;
@@ -28,6 +29,7 @@ export interface NextTrackInfo {
 }
 
 export interface ProgressData {
+    trackUri?: string | null;
     position: number;
     isPlaying: boolean;
     duration?: number;
@@ -41,4 +43,9 @@ export interface LyricsEvent {
 
 export interface ProgressEvent {
     progressData: ProgressData;
+}
+
+export interface LatestPayloads {
+    lyricsData?: LyricsData | null;
+    progressData?: ProgressData | null;
 }

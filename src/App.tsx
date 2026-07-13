@@ -24,7 +24,7 @@ const GITHUB_OWNER = "ivLis-Studio";
 const GITHUB_REPO = "ivLyrics-overlay";
 const CURRENT_VERSION = __APP_VERSION__;
 import "./App.css";
-import type { TrackInfo, LyricLine, LyricsEvent, ProgressEvent } from "./types";
+import type { TrackInfo, LyricLine, LyricsData, ProgressData, LyricsEvent, ProgressEvent, LatestPayloads } from "./types";
 import SettingsPanel from "./SettingsPanel";
 import SetupWizard from "./SetupWizard";
 
@@ -455,6 +455,9 @@ function App() {
     artist: string;
     albumArt?: string;
   } | null>(null);
+  const displayedLyricsTrackUriRef = useRef<string | null>(null);
+  const progressTrackUriRef = useRef<string | null>(null);
+  const pendingLyricsDataRef = useRef<{ data: LyricsData; receivedAt: number } | null>(null);
   const [settings, setSettings] = useState<OverlaySettings>(() => {
     const saved = localStorage.getItem("overlay-settings-v3");
     if (saved) {
@@ -558,20 +561,73 @@ function App() {
 
   // Listen for events from Rust backend
   useEffect(() => {
+    const applyLyricsData = (lyricsData: LyricsData) => {
+      displayedLyricsTrackUriRef.current = lyricsData.trackUri || null;
+      setTrack(lyricsData.track);
+      // 싱크 데이터가 없는 일반 가사는 표시하지 않음
+      if (lyricsData.isSynced) {
+        setLyrics(lyricsData.lyrics);
+        setIsSynced(true);
+      } else {
+        setLyrics([]);
+        setIsSynced(false);
+      }
+    };
+
+    const receiveLyricsData = (lyricsData: LyricsData) => {
+      const trackUri = lyricsData.trackUri || null;
+      const progressTrackUri = progressTrackUriRef.current;
+      if (trackUri && progressTrackUri && trackUri !== progressTrackUri) {
+        pendingLyricsDataRef.current = { data: lyricsData, receivedAt: Date.now() };
+        return;
+      }
+      pendingLyricsDataRef.current = null;
+      applyLyricsData(lyricsData);
+    };
+
+    const clearDisplayedLyrics = () => {
+      displayedLyricsTrackUriRef.current = null;
+      setTrack(null);
+      setLyrics([]);
+      setIsSynced(false);
+      setRemaining(Infinity);
+      setNextTrack(null);
+    };
+
+    const applyProgressData = (progressData: ProgressData) => {
+      const trackUri = progressData.trackUri || null;
+      if (trackUri) {
+        progressTrackUriRef.current = trackUri;
+
+        const pending = pendingLyricsDataRef.current;
+        if (pending?.data.trackUri === trackUri) {
+          pendingLyricsDataRef.current = null;
+          applyLyricsData(pending.data);
+        } else if (pending && Date.now() - pending.receivedAt > 2000) {
+          pendingLyricsDataRef.current = null;
+        }
+
+        const displayedTrackUri = displayedLyricsTrackUriRef.current;
+        if (displayedTrackUri && displayedTrackUri !== trackUri) {
+          clearDisplayedLyrics();
+        }
+      }
+
+      setProgress(progressData.position);
+      setIsPlaying(progressData.isPlaying);
+      if (progressData.remaining !== undefined) {
+        setRemaining(progressData.remaining);
+      }
+      if (progressData.nextTrack !== undefined) {
+        setNextTrack(progressData.nextTrack);
+      }
+      resetDataTimeout();
+    };
+
     const unlistenLyrics = listen<LyricsEvent>("lyrics-update", (event) => {
       const payload = event.payload;
       if (payload.lyricsData) {
-        setTrack(payload.lyricsData.track);
-        // 싱크 데이터가 없는 일반 가사는 표시하지 않음
-        if (payload.lyricsData.isSynced) {
-          setLyrics(payload.lyricsData.lyrics);
-          setIsSynced(true);
-        } else {
-          setLyrics([]);
-          setIsSynced(false);
-        }
-        // Reset timeout on lyrics update
-        resetDataTimeout();
+        receiveLyricsData(payload.lyricsData);
       }
     });
 
@@ -580,19 +636,18 @@ function App() {
       (event) => {
         const payload = event.payload;
         if (payload.progressData) {
-          setProgress(payload.progressData.position);
-          setIsPlaying(payload.progressData.isPlaying);
-          if (payload.progressData.remaining !== undefined) {
-            setRemaining(payload.progressData.remaining);
-          }
-          if (payload.progressData.nextTrack !== undefined) {
-            setNextTrack(payload.progressData.nextTrack);
-          }
-          // Reset timeout on progress update
-          resetDataTimeout();
+          applyProgressData(payload.progressData);
         }
       }
     );
+
+    Promise.all([unlistenLyrics, unlistenProgress])
+      .then(() => invoke<LatestPayloads>("get_latest_payloads"))
+      .then((latest) => {
+        if (latest.progressData) applyProgressData(latest.progressData);
+        if (latest.lyricsData) receiveLyricsData(latest.lyricsData);
+      })
+      .catch(console.error);
 
     // Listen for lock state changes from Tray
     const unlistenLockUpdate = listen<boolean>("lock-state-update", (event) => {

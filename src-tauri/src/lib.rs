@@ -1,20 +1,19 @@
-use axum::{
-    routing::post,
-    Json, Router,
-    http::Method,
-};
+use axum::{http::Method, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Runtime, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime};
 use tower_http::cors::{Any, CorsLayer};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SWP_SHOWWINDOW};
+use windows::Win32::Foundation::{HWND, POINT};
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{POINT, HWND};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_SHOWWINDOW,
+};
 
 // Track info from Spotify
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,9 +32,9 @@ pub struct TrackInfo {
 pub struct LyricLine {
     pub start_time: i64,
     pub end_time: Option<i64>,
-    pub text: String,           // Original text
+    pub text: String, // Original text
     #[serde(default)]
-    pub pron_text: Option<String>,  // Phonetic/romanized text
+    pub pron_text: Option<String>, // Phonetic/romanized text
     #[serde(default)]
     pub trans_text: Option<String>, // Translation text
 }
@@ -44,6 +43,8 @@ pub struct LyricLine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricsData {
+    #[serde(default)]
+    pub track_uri: Option<String>,
     pub track: TrackInfo,
     pub lyrics: Vec<LyricLine>,
     pub is_synced: bool,
@@ -53,6 +54,8 @@ pub struct LyricsData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressData {
+    #[serde(default)]
+    pub track_uri: Option<String>,
     pub position: u64,
     pub is_playing: bool,
     #[serde(default)]
@@ -85,9 +88,17 @@ pub struct ProgressEvent {
     pub progress_data: ProgressData,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LatestPayloads {
+    lyrics_data: Option<LyricsData>,
+    progress_data: Option<ProgressData>,
+}
+
 // Shared state for HTTP server
 struct AppState<R: Runtime> {
     app_handle: AppHandle<R>,
+    latest_payloads: Arc<Mutex<LatestPayloads>>,
 }
 
 // HTTP Server port state
@@ -100,12 +111,12 @@ struct AppLockState {
     is_locked: bool,
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     is_interactive: bool, // Track current interactive state to avoid spamming calls
-    unlock_wait_time: f32, // Wait time in seconds before progress starts
-    unlock_hold_time: f32, // Hold time in seconds to complete unlock
+    unlock_wait_time: f32,     // Wait time in seconds before progress starts
+    unlock_hold_time: f32,     // Hold time in seconds to complete unlock
     enable_hover_unlock: bool, // Enable/disable hover unlock feature
-    enable_auto_lock: bool, // Enable/disable auto-lock when idle after unlock
+    enable_auto_lock: bool,    // Enable/disable auto-lock when idle after unlock
     auto_lock_delay: f32, // Delay in seconds before auto-locking (when no movement after unlock)
-    language: String, // Current language setting ("ko" or "en")
+    language: String,     // Current language setting ("ko" or "en")
 }
 
 // Localized tray menu strings
@@ -132,7 +143,7 @@ fn get_tray_strings(lang: &str) -> TrayStrings {
             reset_pos: "Reset Position",
             toggle_lock: "Lock/Unlock",
             devtools: "DevTools",
-        }
+        },
     }
 }
 
@@ -153,7 +164,9 @@ fn load_language_setting() -> String {
 // Load startMinimized setting from localStorage (via config file)
 fn load_start_minimized_setting() -> bool {
     if let Some(config_dir) = dirs::config_dir() {
-        let config_path = config_dir.join("ivlyrics-overlay").join("start_minimized.txt");
+        let config_path = config_dir
+            .join("ivlyrics-overlay")
+            .join("start_minimized.txt");
         if let Ok(content) = std::fs::read_to_string(&config_path) {
             return content.trim() == "true";
         }
@@ -196,12 +209,12 @@ async fn set_start_minimized(minimized: bool) -> Result<(), String> {
 fn save_language_setting(lang: &str) -> Result<(), String> {
     if let Some(config_dir) = dirs::config_dir() {
         let app_config_dir = config_dir.join("ivlyrics-overlay");
-        
+
         if !app_config_dir.exists() {
             std::fs::create_dir_all(&app_config_dir)
                 .map_err(|e| format!("Failed to create config directory: {}", e))?;
         }
-        
+
         let config_path = app_config_dir.join("language.txt");
         std::fs::write(&config_path, lang)
             .map_err(|e| format!("Failed to save language config: {}", e))?;
@@ -215,7 +228,7 @@ fn save_language_setting(lang: &str) -> Result<(), String> {
 #[tauri::command]
 async fn set_tray_language(
     state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
-    language: String
+    language: String,
 ) -> Result<(), String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.language = language.clone();
@@ -228,8 +241,13 @@ async fn handle_lyrics<R: Runtime>(
     axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>,
     Json(lyrics_data): Json<LyricsData>,
 ) -> &'static str {
+    if let Ok(mut latest) = state.latest_payloads.lock() {
+        latest.lyrics_data = Some(lyrics_data.clone());
+    }
     // Emit to frontend
-    let _ = state.app_handle.emit("lyrics-update", LyricsEvent { lyrics_data });
+    let _ = state
+        .app_handle
+        .emit("lyrics-update", LyricsEvent { lyrics_data });
     "OK"
 }
 
@@ -237,14 +255,26 @@ async fn handle_progress<R: Runtime>(
     axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>,
     Json(progress_data): Json<ProgressData>,
 ) -> &'static str {
+    if let Ok(mut latest) = state.latest_payloads.lock() {
+        latest.progress_data = Some(progress_data.clone());
+    }
     // Emit to frontend
-    let _ = state.app_handle.emit("progress-update", ProgressEvent { progress_data });
+    let _ = state
+        .app_handle
+        .emit("progress-update", ProgressEvent { progress_data });
     "OK"
 }
 
 // Start HTTP server with custom port
-async fn start_http_server<R: Runtime>(app_handle: AppHandle<R>, port: u16) {
-    let state = Arc::new(AppState { app_handle: app_handle.clone() });
+async fn start_http_server<R: Runtime>(
+    app_handle: AppHandle<R>,
+    port: u16,
+    latest_payloads: Arc<Mutex<LatestPayloads>>,
+) {
+    let state = Arc::new(AppState {
+        app_handle: app_handle.clone(),
+        latest_payloads,
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -272,10 +302,20 @@ async fn start_http_server<R: Runtime>(app_handle: AppHandle<R>, port: u16) {
         .expect("HTTP server failed");
 }
 
+#[tauri::command]
+async fn get_latest_payloads(
+    state: tauri::State<'_, Arc<Mutex<LatestPayloads>>>,
+) -> Result<LatestPayloads, String> {
+    state
+        .lock()
+        .map(|latest| latest.clone())
+        .map_err(|e| e.to_string())
+}
+
 // Tauri command to get current server port
 #[tauri::command]
 async fn get_server_port(
-    state: tauri::State<'_, Arc<Mutex<HttpServerPort>>>
+    state: tauri::State<'_, Arc<Mutex<HttpServerPort>>>,
 ) -> Result<u16, String> {
     let s = state.lock().map_err(|e| e.to_string())?;
     Ok(s.port)
@@ -324,7 +364,9 @@ async fn start_drag(window: tauri::Window) -> Result<(), String> {
 // Tauri command to set ignore cursor events
 #[tauri::command]
 async fn set_ignore_cursor_events(window: tauri::Window, ignore: bool) -> Result<(), String> {
-    window.set_ignore_cursor_events(ignore).map_err(|e| e.to_string())
+    window
+        .set_ignore_cursor_events(ignore)
+        .map_err(|e| e.to_string())
 }
 
 // Tauri command to update lock state from frontend
@@ -332,7 +374,7 @@ async fn set_ignore_cursor_events(window: tauri::Window, ignore: bool) -> Result
 #[tauri::command]
 async fn set_lock_state(
     state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
-    locked: bool
+    locked: bool,
 ) -> Result<(), String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.is_locked = locked;
@@ -344,7 +386,7 @@ async fn set_lock_state(
 async fn set_unlock_timing(
     state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
     wait_time: f32,
-    hold_time: f32
+    hold_time: f32,
 ) -> Result<(), String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.unlock_wait_time = wait_time;
@@ -356,7 +398,7 @@ async fn set_unlock_timing(
 #[tauri::command]
 async fn set_hover_unlock_enabled(
     state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
-    enabled: bool
+    enabled: bool,
 ) -> Result<(), String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.enable_hover_unlock = enabled;
@@ -367,7 +409,7 @@ async fn set_hover_unlock_enabled(
 #[tauri::command]
 async fn set_auto_lock_enabled(
     state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
-    enabled: bool
+    enabled: bool,
 ) -> Result<(), String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.enable_auto_lock = enabled;
@@ -378,13 +420,12 @@ async fn set_auto_lock_enabled(
 #[tauri::command]
 async fn set_auto_lock_delay(
     state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
-    delay: f32
+    delay: f32,
 ) -> Result<(), String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     s.auto_lock_delay = delay;
     Ok(())
 }
-
 
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
@@ -395,14 +436,14 @@ async fn open_settings_window(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn get_system_fonts() -> Result<Vec<String>, String> {
     use font_kit::source::SystemSource;
-    
+
     let source = SystemSource::new();
     let families = source.all_families().map_err(|e| e.to_string())?;
-    
+
     let mut fonts: Vec<String> = families.into_iter().collect();
     fonts.sort();
     fonts.dedup();
-    
+
     Ok(fonts)
 }
 
@@ -544,7 +585,9 @@ fn macos_set_ignore_cursor_events<R: Runtime + 'static>(
 ) -> Result<(), String> {
     run_on_main_thread_result(app_handle, move |handle| {
         if let Some(window) = handle.get_webview_window("main") {
-            window.set_ignore_cursor_events(ignore).map_err(|e| e.to_string())?;
+            window
+                .set_ignore_cursor_events(ignore)
+                .map_err(|e| e.to_string())?;
         }
         Ok(())
     })
@@ -619,9 +662,9 @@ pub fn run() {
     let start_minimized = load_start_minimized_setting();
 
     // Shared state for HTTP server port
-    let port_state = Arc::new(Mutex::new(HttpServerPort {
-        port: server_port,
-    }));
+    let port_state = Arc::new(Mutex::new(HttpServerPort { port: server_port }));
+
+    let latest_payloads = Arc::new(Mutex::new(LatestPayloads::default()));
 
     // Load language setting
     let saved_language = load_language_setting();
@@ -630,11 +673,11 @@ pub fn run() {
     let lock_state = Arc::new(Mutex::new(AppLockState {
         is_locked: true, // Default to locked (pass-through)
         is_interactive: false,
-        unlock_wait_time: 1.2, // Default: 1.2 seconds
-        unlock_hold_time: 3.0, // Default: 3 seconds
-        enable_hover_unlock: true, // Default: enabled
-        enable_auto_lock: true, // Default: enabled
-        auto_lock_delay: 3.0, // Default: 3 seconds
+        unlock_wait_time: 1.2,            // Default: 1.2 seconds
+        unlock_hold_time: 3.0,            // Default: 3 seconds
+        enable_hover_unlock: true,        // Default: enabled
+        enable_auto_lock: true,           // Default: enabled
+        auto_lock_delay: 3.0,             // Default: 3 seconds
         language: saved_language.clone(), // Load saved language
     }));
 
@@ -646,10 +689,11 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init()) // Deep Link / URL Scheme
         .manage(lock_state.clone()) // Manage properly in Tauri state
         .manage(port_state.clone()) // Manage port state
+        .manage(latest_payloads.clone()) // Retain the latest HTTP payloads across frontend reloads
         .setup(move |app| {
             // Get localized tray strings
             let tray_strings = get_tray_strings(&saved_language);
-            
+
             // Setup Tray Icon with localized strings
             let quit_i = MenuItem::with_id(app, "quit", tray_strings.quit, true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", tray_strings.settings, true, None::<&str>)?;
@@ -693,7 +737,7 @@ pub fn run() {
                              let mut lock_state = state.lock().unwrap();
                              lock_state.is_locked = !lock_state.is_locked;
                              let new_locked = lock_state.is_locked;
-                             
+
                              // Emit event to frontend to update UI
                              let _ = app.emit("lock-state-update", new_locked);
                         },
@@ -766,8 +810,9 @@ pub fn run() {
             // Start HTTP server in background with custom port
             let app_handle_http = app_handle.clone();
             let http_port = server_port;
+            let http_latest_payloads = latest_payloads.clone();
             tauri::async_runtime::spawn(async move {
-                start_http_server(app_handle_http, http_port).await;
+                start_http_server(app_handle_http, http_port, http_latest_payloads).await;
             });
 
             // Auto-open settings window on startup (unless startMinimized is enabled)
@@ -1040,6 +1085,7 @@ pub fn run() {
             set_auto_lock_enabled,
             set_auto_lock_delay,
             get_system_fonts,
+            get_latest_payloads,
             get_server_port,
             set_server_port,
             restart_app,
@@ -1050,4 +1096,57 @@ pub fn run() {
 
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LyricsData, ProgressData};
+
+    #[test]
+    fn accepts_track_aware_payloads() {
+        let lyrics: LyricsData = serde_json::from_value(serde_json::json!({
+            "trackUri": "spotify:track:new",
+            "track": {
+                "title": "New song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration": 180000
+            },
+            "lyrics": [],
+            "isSynced": true
+        }))
+        .expect("track-aware lyrics payload should deserialize");
+        let progress: ProgressData = serde_json::from_value(serde_json::json!({
+            "trackUri": "spotify:track:new",
+            "position": 1000,
+            "isPlaying": true
+        }))
+        .expect("track-aware progress payload should deserialize");
+
+        assert_eq!(lyrics.track_uri.as_deref(), Some("spotify:track:new"));
+        assert_eq!(progress.track_uri.as_deref(), Some("spotify:track:new"));
+    }
+
+    #[test]
+    fn keeps_legacy_payloads_compatible() {
+        let lyrics: LyricsData = serde_json::from_value(serde_json::json!({
+            "track": {
+                "title": "Legacy song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration": 180000
+            },
+            "lyrics": [],
+            "isSynced": true
+        }))
+        .expect("legacy lyrics payload should deserialize");
+        let progress: ProgressData = serde_json::from_value(serde_json::json!({
+            "position": 1000,
+            "isPlaying": true
+        }))
+        .expect("legacy progress payload should deserialize");
+
+        assert_eq!(lyrics.track_uri, None);
+        assert_eq!(progress.track_uri, None);
+    }
 }
