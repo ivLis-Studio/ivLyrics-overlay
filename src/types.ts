@@ -6,6 +6,30 @@ export interface TrackInfo {
     duration: number;
 }
 
+export interface LyricSyllable {
+    startTime: number;
+    endTime?: number;
+    text: string;
+}
+
+export interface LyricVocalPart {
+    id?: string;
+    role?: string;
+    speaker?: string;
+    speakerColor?: string;
+    speakerFallback?: string;
+    kind?: string;
+    text?: string;
+    phonetic?: string;
+    translation?: string;
+    syllables: LyricSyllable[];
+}
+
+export interface LyricVocals {
+    lead: LyricVocalPart;
+    background?: LyricVocalPart[];
+}
+
 export interface LyricLine {
     startTime: number;
     endTime?: number;
@@ -13,6 +37,12 @@ export interface LyricLine {
     pronText?: string;
     transText?: string;
     translation?: string; // For backward compatibility if needed, though lib.rs dicts strict shape, but frontend code might use it?
+    speaker?: string;
+    speakerColor?: string;
+    speakerFallback?: string;
+    kind?: string;
+    syllables?: LyricSyllable[];
+    vocals?: LyricVocals;
 }
 
 export interface LyricsData {

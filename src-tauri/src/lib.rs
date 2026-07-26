@@ -26,6 +26,50 @@ pub struct TrackInfo {
     pub duration: u64,
 }
 
+// Timed lyric syllable for karaoke rendering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricSyllable {
+    pub start_time: i64,
+    #[serde(default)]
+    pub end_time: Option<i64>,
+    pub text: String,
+}
+
+// A timed vocal lane. Lead and background lanes may overlap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricVocalPart {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub speaker: Option<String>,
+    #[serde(default)]
+    pub speaker_color: Option<String>,
+    #[serde(default)]
+    pub speaker_fallback: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub phonetic: Option<String>,
+    #[serde(default)]
+    pub translation: Option<String>,
+    #[serde(default)]
+    pub syllables: Vec<LyricSyllable>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricVocals {
+    pub lead: LyricVocalPart,
+    #[serde(default)]
+    pub background: Vec<LyricVocalPart>,
+}
+
 // Single lyric line
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +81,18 @@ pub struct LyricLine {
     pub pron_text: Option<String>, // Phonetic/romanized text
     #[serde(default)]
     pub trans_text: Option<String>, // Translation text
+    #[serde(default)]
+    pub speaker: Option<String>,
+    #[serde(default)]
+    pub speaker_color: Option<String>,
+    #[serde(default)]
+    pub speaker_fallback: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub syllables: Vec<LyricSyllable>, // Optional karaoke timing
+    #[serde(default)]
+    pub vocals: Option<LyricVocals>, // Optional overlapping vocal lanes
 }
 
 // Full lyrics data payload
@@ -1112,7 +1168,34 @@ mod tests {
                 "album": "Album",
                 "duration": 180000
             },
-            "lyrics": [],
+            "lyrics": [{
+                "startTime": 1000,
+                "endTime": 2000,
+                "text": "Hello",
+                "syllables": [
+                    { "startTime": 1000, "endTime": 1500, "text": "Hel" },
+                    { "startTime": 1500, "endTime": 2000, "text": "lo" }
+                ],
+                "vocals": {
+                    "lead": {
+                        "id": "lead",
+                        "role": "lead",
+                        "speakerColor": "#00d4ff",
+                        "syllables": [
+                            { "startTime": 1000, "endTime": 1500, "text": "Hel" },
+                            { "startTime": 1500, "endTime": 2000, "text": "lo" }
+                        ]
+                    },
+                    "background": [{
+                        "id": "backing",
+                        "role": "background",
+                        "speakerColor": "#ff7ab6",
+                        "syllables": [
+                            { "startTime": 1250, "endTime": 1900, "text": "Hey" }
+                        ]
+                    }]
+                }
+            }],
             "isSynced": true
         }))
         .expect("track-aware lyrics payload should deserialize");
@@ -1124,6 +1207,18 @@ mod tests {
         .expect("track-aware progress payload should deserialize");
 
         assert_eq!(lyrics.track_uri.as_deref(), Some("spotify:track:new"));
+        assert_eq!(lyrics.lyrics[0].syllables.len(), 2);
+        assert_eq!(lyrics.lyrics[0].syllables[1].text, "lo");
+        let vocals = lyrics.lyrics[0]
+            .vocals
+            .as_ref()
+            .expect("multi-vocal payload should deserialize");
+        assert_eq!(vocals.lead.syllables.len(), 2);
+        assert_eq!(vocals.background.len(), 1);
+        assert_eq!(
+            vocals.background[0].speaker_color.as_deref(),
+            Some("#ff7ab6")
+        );
         assert_eq!(progress.track_uri.as_deref(), Some("spotify:track:new"));
     }
 
@@ -1147,6 +1242,7 @@ mod tests {
         .expect("legacy progress payload should deserialize");
 
         assert_eq!(lyrics.track_uri, None);
+        assert!(lyrics.lyrics.is_empty());
         assert_eq!(progress.track_uri, None);
     }
 }

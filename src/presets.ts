@@ -444,6 +444,8 @@ export function applyPreset(
         // Keep lyrics display lines
         lyricsPrevLines: currentSettings.lyricsPrevLines,
         lyricsNextLines: currentSettings.lyricsNextLines,
+        // Keep the user's karaoke preference while changing visual styles
+        karaokeEnabled: currentSettings.karaokeEnabled,
     };
 
     return {

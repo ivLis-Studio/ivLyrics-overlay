@@ -27,6 +27,7 @@ import "./App.css";
 import type { TrackInfo, LyricLine, LyricsData, ProgressData, LyricsEvent, ProgressEvent, LatestPayloads } from "./types";
 import SettingsPanel from "./SettingsPanel";
 import SetupWizard from "./SetupWizard";
+import KaraokeLyrics, { hasKaraokeVocalRows } from "./KaraokeLyrics";
 
 // Default settings
 const defaultSettings = {
@@ -34,6 +35,7 @@ const defaultSettings = {
   showPhonetic: true,
   showTranslation: true,
   showTrackInfo: true,
+  karaokeEnabled: true,
 
   // Startup behavior
   startMinimized: false, // Start minimized to tray (no settings window)
@@ -448,6 +450,7 @@ function App() {
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [_isSynced, setIsSynced] = useState<boolean>(true);
   const [progress, setProgress] = useState<number>(0);
+  const [renderProgress, setRenderProgress] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [remaining, setRemaining] = useState<number>(Infinity);
   const [nextTrack, setNextTrack] = useState<{
@@ -477,6 +480,32 @@ function App() {
   const t = strings[settings.language || "ko"];
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const shouldAnimateKaraoke = useMemo(
+    () => settings.karaokeEnabled && lyrics.some((line) => (
+      (Array.isArray(line.syllables) && line.syllables.length > 0)
+      || (Array.isArray(line.vocals?.lead?.syllables) && line.vocals.lead.syllables.length > 0)
+    )),
+    [settings.karaokeEnabled, lyrics]
+  );
+
+  // Sender updates arrive every 250ms. Interpolate between anchors so karaoke
+  // fill and bounce use the same frame-based playback position as ivLyrics.
+  useEffect(() => {
+    if (!isPlaying || !shouldAnimateKaraoke) {
+      setRenderProgress(progress);
+      return;
+    }
+
+    const baseProgress = progress;
+    const startedAt = performance.now();
+    let animationFrame = 0;
+    const tick = (now: number) => {
+      setRenderProgress(baseProgress + now - startedAt);
+      animationFrame = requestAnimationFrame(tick);
+    };
+    animationFrame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [progress, isPlaying, shouldAnimateKaraoke]);
 
   // Update modal state
   type UpdateStatus =
@@ -518,12 +547,12 @@ function App() {
   const activeLineIndex = useMemo(() => {
     if (lyrics.length === 0) return -1;
     for (let i = lyrics.length - 1; i >= 0; i--) {
-      if (progress >= lyrics[i].startTime) {
+      if (renderProgress >= lyrics[i].startTime) {
         return i;
       }
     }
     return -1;
-  }, [lyrics, progress]);
+  }, [lyrics, renderProgress]);
 
   // Get the active lyric line only
   const activeLine = useMemo(() => {
@@ -1105,6 +1134,8 @@ function App() {
           "--translation-weight": settings.translationFontWeight,
           "--text-color": settings.textColor,
           "--active-color": settings.activeColor,
+          "--lyrics-color-active": settings.activeColor,
+          "--lyrics-color-inactive": `color-mix(in srgb, ${settings.textColor} 50%, transparent)`,
           "--phonetic-color": settings.phoneticColor,
           "--translation-color": settings.translationColor,
           "--line-bg": hexToRgba(
@@ -1140,6 +1171,12 @@ function App() {
           "--line-gap": `${settings.lineGap}px`,
           "--anim-duration": `${settings.animationDuration}ms`,
           // Text effects with colors
+          "--karaoke-text-drop-shadow":
+            settings.textShadow === "soft"
+              ? `drop-shadow(0 2px 4px ${hexToRgba(settings.textShadowColor, 0.5)})`
+              : settings.textShadow === "hard"
+                ? `drop-shadow(1px 1px 0 ${settings.textShadowColor}) drop-shadow(-1px -1px 0 ${settings.textShadowColor}) drop-shadow(1px -1px 0 ${settings.textShadowColor}) drop-shadow(-1px 1px 0 ${settings.textShadowColor})`
+                : "none",
           "--text-shadow":
             settings.textShadow === "soft"
               ? `0 2px 4px ${hexToRgba(settings.textShadowColor, 0.5)}`
@@ -1353,11 +1390,44 @@ function App() {
           }
 
           // 각 줄에 대해 렌더링 (세트 단위로 wrapper)
-          const renderLyricSet = (lineInfo: { line: LyricLine; index: number; isActive: boolean }, setIndex: number, totalSets: number) => {
+          const renderLyricSet = (
+            lineInfo: { line: LyricLine; index: number; isActive: boolean },
+            setIndex: number,
+            totalSets: number
+          ) => {
             const displayData = getDisplayText(lineInfo.line);
             const isLastSet = setIndex === totalSets - 1;
             // CSS handles inactive opacity via --inactive-opacity variable and .inactive class
             const activeClass = lineInfo.isActive ? 'active' : (settings.fadeNonActiveLyrics ? 'inactive' : 'active');
+            const hasTimedSyllables = (syllables?: LyricLine["syllables"]) => (
+              Array.isArray(syllables) && syllables.some((syllable) => (
+                Number.isFinite(syllable?.startTime)
+                && typeof syllable?.text === "string"
+                && syllable.text.length > 0
+              ))
+            );
+            const hasKaraokeTiming = settings.karaokeEnabled && (
+              hasTimedSyllables(lineInfo.line.syllables)
+              || hasTimedSyllables(lineInfo.line.vocals?.lead?.syllables)
+            );
+            const hasMultiVocalRows = hasKaraokeTiming && hasKaraokeVocalRows(lineInfo.line);
+            const embedsVocalAuxiliary = hasMultiVocalRows && settings.showOriginal;
+
+            const renderOriginal = () => {
+              if (!hasKaraokeTiming) return displayData.main;
+
+              return (
+                <KaraokeLyrics
+                  line={lineInfo.line}
+                  position={renderProgress}
+                  isActive={lineInfo.isActive}
+                  showPhonetic={settings.showPhonetic}
+                  showTranslation={settings.showTranslation}
+                  phonetic={displayData.phonetic}
+                  translation={displayData.translation}
+                />
+              );
+            };
 
             // Render lyrics elements in order for this line
             const elements = lyricsElements
@@ -1368,13 +1438,13 @@ function App() {
                     return (
                       <div
                         key={`original-${lineInfo.index}`}
-                        className={`lyric-line original ${activeClass}`}
+                        className={`lyric-line original ${hasKaraokeTiming ? "karaoke" : ""} ${activeClass}`}
                       >
-                        {displayData.main}
+                        {renderOriginal()}
                       </div>
                     );
                   case "phonetic":
-                    if (!settings.showPhonetic || !displayData.phonetic) return null;
+                    if (embedsVocalAuxiliary || !settings.showPhonetic || !displayData.phonetic) return null;
                     return (
                       <div
                         key={`phonetic-${lineInfo.index}`}
@@ -1384,7 +1454,7 @@ function App() {
                       </div>
                     );
                   case "translation":
-                    if (!settings.showTranslation || !displayData.translation) return null;
+                    if (embedsVocalAuxiliary || !settings.showTranslation || !displayData.translation) return null;
                     return (
                       <div
                         key={`translation-${lineInfo.index}`}

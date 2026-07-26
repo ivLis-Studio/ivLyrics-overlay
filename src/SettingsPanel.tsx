@@ -33,6 +33,8 @@ const strings = {
         lyricsElementsSection: "가사 요소",
         originalLyrics: "원어 가사",
         originalLyricsDesc: "원본 언어로 된 가사 표시",
+        karaokeLyrics: "노래방 효과",
+        karaokeLyricsDesc: "음절 타이밍에 맞춰 가사를 채우고 통통 튀는 효과 표시",
         phoneticLyrics: "발음 가사",
         phoneticLyricsDesc: "로마자 또는 발음 표기 표시",
         translationLyrics: "번역 가사",
@@ -269,6 +271,8 @@ const strings = {
         lyricsElementsSection: "Lyrics Elements",
         originalLyrics: "Original Lyrics",
         originalLyricsDesc: "Display lyrics in original language",
+        karaokeLyrics: "Karaoke Effect",
+        karaokeLyricsDesc: "Fill and bounce lyrics using syllable timing",
         phoneticLyrics: "Phonetic Lyrics",
         phoneticLyricsDesc: "Display romanization or pronunciation",
         translationLyrics: "Translation",
@@ -1061,6 +1065,9 @@ export default function SettingsPanel({
                             <SettingSection title={t.lyricsElementsSection} delay={0}>
                                 <SettingItem label={t.originalLyrics} description={t.originalLyricsDesc}>
                                     <Toggle checked={settings.showOriginal} onChange={(v) => update("showOriginal", v)} />
+                                </SettingItem>
+                                <SettingItem label={t.karaokeLyrics} description={t.karaokeLyricsDesc}>
+                                    <Toggle checked={settings.karaokeEnabled} onChange={(v) => update("karaokeEnabled", v)} />
                                 </SettingItem>
                                 <SettingItem label={t.phoneticLyrics} description={t.phoneticLyricsDesc}>
                                     <Toggle checked={settings.showPhonetic} onChange={(v) => update("showPhonetic", v)} />
