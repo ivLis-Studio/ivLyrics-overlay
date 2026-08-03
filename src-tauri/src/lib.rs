@@ -688,6 +688,7 @@ fn show_or_create_settings_window<R: Runtime, M: Manager<R>>(manager: &M) -> Res
         settings_window
             .eval("window.location.replace('index.html?settings=true')")
             .map_err(|e| e.to_string())?;
+        refresh_windows_overlay_transparency(manager);
         return Ok(());
     }
 
@@ -707,8 +708,23 @@ fn show_or_create_settings_window<R: Runtime, M: Manager<R>>(manager: &M) -> Res
     reset_window_if_offscreen(&settings_window, 140, 140);
     settings_window.show().map_err(|e| e.to_string())?;
     settings_window.set_focus().map_err(|e| e.to_string())?;
+    refresh_windows_overlay_transparency(manager);
 
     Ok(())
+}
+
+fn refresh_windows_overlay_transparency<R: Runtime, M: Manager<R>>(manager: &M) {
+    #[cfg(target_os = "windows")]
+    if let Some(window) = manager.get_webview_window("main") {
+        if let Err(error) =
+            window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)))
+        {
+            eprintln!("Failed to refresh Windows overlay transparency: {error}");
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = manager;
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -738,6 +754,11 @@ pub fn run() {
     }));
 
     tauri::Builder::default()
+        // Autostart may already have launched the overlay before the user opens it manually.
+        // Keep one native overlay window and route subsequent launches to its settings window.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = show_or_create_settings_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build()) // Updater Init
         .plugin(tauri_plugin_window_state::Builder::default().build()) // Window State Persistence
@@ -862,6 +883,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 reset_window_if_offscreen(&window, 100, 100);
             }
+            refresh_windows_overlay_transparency(app);
 
             // Start HTTP server in background with custom port
             let app_handle_http = app_handle.clone();

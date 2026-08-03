@@ -19,6 +19,7 @@
         "x": 100,
         "y": 100,
         "transparent": true,
+        "backgroundColor": [0, 0, 0, 0],
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
