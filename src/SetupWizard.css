@@ -5,10 +5,11 @@
 .setup-wizard {
     position: fixed;
     inset: 0;
+    height: 100vh;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     background: linear-gradient(145deg, #0a0a0f 0%, #12121a 50%, #0d0d14 100%);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
     color: rgba(255, 255, 255, 0.92);
@@ -119,12 +120,50 @@
 /* ============================================
    Content Container
    ============================================ */
+.setup-scroll {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    z-index: 1;
+}
+
+.setup-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.setup-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.setup-scroll::-webkit-scrollbar-thumb {
+    min-height: 40px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.setup-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.32);
+}
+
 .setup-content {
     position: relative;
     width: 100%;
     max-width: 420px;
-    padding: 24px;
-    z-index: 1;
+    min-height: 100%;
+    margin: 0 auto;
+    padding: 72px 24px 32px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+.setup-content > .setup-step {
+    width: 100%;
 }
 
 .setup-content.animating {
@@ -774,7 +813,7 @@
 @media (max-width: 480px) {
     .setup-content {
         max-width: 100%;
-        padding: 16px;
+        padding: 72px 16px 24px;
     }
 
     .welcome-title {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { OverlaySettings } from "./App";
 import { presets, PresetInfo, applyPreset } from "./presets";
 import "./SetupWizard.css";
@@ -104,6 +104,7 @@ export default function SetupWizard({ onComplete, currentSettings }: SetupWizard
     const [settings, setSettings] = useState<OverlaySettings>(currentSettings);
     const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
     const [isAnimating, setIsAnimating] = useState(false);
+    const scrollRef = useRef<HTMLDivElement>(null);
 
     const t = strings[settings.language || "ko"];
 
@@ -120,6 +121,10 @@ export default function SetupWizard({ onComplete, currentSettings }: SetupWizard
             }
         }
     }, [step, selectedPreset, recommendedPresets]);
+
+    useEffect(() => {
+        scrollRef.current?.scrollTo({ top: 0 });
+    }, [step]);
 
     const handleStepChange = (direction: 1 | -1) => {
         if (isAnimating) return;
@@ -208,7 +213,9 @@ export default function SetupWizard({ onComplete, currentSettings }: SetupWizard
                 ))}
             </div>
 
-            <div className={`setup-content ${isAnimating ? "animating" : ""}`}>{renderStep()}</div>
+            <div className="setup-scroll" ref={scrollRef}>
+                <div className={`setup-content ${isAnimating ? "animating" : ""}`}>{renderStep()}</div>
+            </div>
         </div>
     );
 }
