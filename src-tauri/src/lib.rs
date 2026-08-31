@@ -729,6 +729,12 @@ fn refresh_windows_overlay_transparency<R: Runtime, M: Manager<R>>(manager: &M) 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebView2 paints an opaque default background before the runtime API can
+    // apply the transparent color. Set its one-shot default before Tauri creates
+    // any webview so Windows never exposes that host-colored startup surface.
+    #[cfg(target_os = "windows")]
+    std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
+
     // Load server port
     let server_port = load_server_port();
     let start_minimized = load_start_minimized_setting();
