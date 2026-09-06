@@ -29,7 +29,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Verify playback and native polling regressions
+        run: |
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Build and Upload Release
         uses: tauri-apps/tauri-action@v0
