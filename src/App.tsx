@@ -591,6 +591,9 @@ function App() {
   useEffect(() => {
     if (isSettingsWindow) return;
     let disposed = false;
+    let lyricsRevision = 0;
+    let progressRevision = 0;
+    let liveLyricsTrackUri: string | null = null;
     const applyLyricsData = (lyricsData: LyricsData) => {
       if (disposed) return;
       displayedLyricsTrackUriRef.current = lyricsData.trackUri || null;
@@ -660,6 +663,8 @@ function App() {
     const unlistenLyrics = listen<LyricsEvent>("lyrics-update", (event) => {
       const payload = event.payload;
       if (payload.lyricsData) {
+        lyricsRevision++;
+        liveLyricsTrackUri = payload.lyricsData.trackUri || null;
         receiveLyricsData(payload.lyricsData);
       }
     });
@@ -669,17 +674,33 @@ function App() {
       (event) => {
         const payload = event.payload;
         if (payload.progressData) {
+          progressRevision++;
           applyProgressData(payload.progressData);
         }
       }
     );
 
     Promise.all([unlistenLyrics, unlistenProgress])
-      .then(() => disposed ? null : invoke<LatestPayloads>("get_latest_payloads"))
-      .then((latest) => {
-        if (!latest || disposed) return;
-        if (latest.progressData) applyProgressData(latest.progressData);
-        if (latest.lyricsData) receiveLyricsData(latest.lyricsData);
+      .then(async () => {
+        if (disposed) return null;
+        const requestedLyricsRevision = lyricsRevision;
+        const requestedProgressRevision = progressRevision;
+        const latest = await invoke<LatestPayloads>("get_latest_payloads");
+        return { latest, requestedLyricsRevision, requestedProgressRevision };
+      })
+      .then((snapshot) => {
+        if (!snapshot || disposed) return;
+        const { latest, requestedLyricsRevision, requestedProgressRevision } = snapshot;
+        const receivedLiveLyrics = lyricsRevision !== requestedLyricsRevision;
+        // Restore each stream independently, without overwriting events received
+        // while the snapshot was in flight. Old-track progress must also not
+        // clear newer lyrics that arrived before their matching progress event.
+        const progressConflictsWithLiveLyrics = receivedLiveLyrics && liveLyricsTrackUri
+          && latest.progressData?.trackUri && liveLyricsTrackUri !== latest.progressData.trackUri;
+        if (latest.progressData && progressRevision === requestedProgressRevision && !progressConflictsWithLiveLyrics) {
+          applyProgressData(latest.progressData);
+        }
+        if (latest.lyricsData && !receivedLiveLyrics) receiveLyricsData(latest.lyricsData);
       })
       .catch(console.error);
 
@@ -921,12 +942,11 @@ function App() {
       line.pronText &&
       line.pronText.trim() !== "" &&
       line.pronText !== line.text;
-    // transText가 존재하고, 빈 문자열이 아니며, 원어/발음과 다르면 표시
+    // Compare with phonetics at the render site, where their visibility is known.
     const hasTransText =
       line.transText &&
       line.transText.trim() !== "" &&
-      line.transText !== line.text &&
-      line.transText !== line.pronText;
+      line.transText !== line.text;
     return {
       main: line.text || "",
       phonetic: hasPronText ? line.pronText : null,
@@ -1394,6 +1414,9 @@ function App() {
             totalSets: number
           ) => {
             const displayData = getDisplayText(lineInfo.line);
+            const duplicatesVisiblePhonetic = settings.showPhonetic
+              && lyricsElements.includes("phonetic")
+              && displayData.translation === displayData.phonetic;
             const isLastSet = setIndex === totalSets - 1;
             // CSS handles inactive opacity via --inactive-opacity variable and .inactive class
             const activeClass = lineInfo.isActive ? 'active' : (settings.fadeNonActiveLyrics ? 'inactive' : 'active');
@@ -1452,7 +1475,7 @@ function App() {
                       </div>
                     );
                   case "translation":
-                    if (embedsVocalAuxiliary || !settings.showTranslation || !displayData.translation) return null;
+                    if (embedsVocalAuxiliary || !settings.showTranslation || !displayData.translation || duplicatesVisiblePhonetic) return null;
                     return (
                       <div
                         key={`translation-${lineInfo.index}`}

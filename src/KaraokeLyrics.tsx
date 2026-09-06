@@ -730,7 +730,7 @@ const KaraokeLyrics = memo(function KaraokeLyrics({
                             {showPhonetic && rowPhonetic && (
                                 <span className="karaoke-part-subline phonetic">{rowPhonetic}</span>
                             )}
-                            {showTranslation && rowTranslation && (
+                            {showTranslation && rowTranslation && !(showPhonetic && rowTranslation === rowPhonetic) && (
                                 <span className="karaoke-part-subline translation">{rowTranslation}</span>
                             )}
                         </span>
@@ -739,7 +739,8 @@ const KaraokeLyrics = memo(function KaraokeLyrics({
                 {showPhonetic && !hasRowPhonetic && phonetic && (
                     <span className="karaoke-part-subline karaoke-stack-subline phonetic">{phonetic}</span>
                 )}
-                {showTranslation && !hasRowTranslation && translation && (
+                {showTranslation && !hasRowTranslation && translation
+                    && !(showPhonetic && !hasRowPhonetic && translation === phonetic) && (
                     <span className="karaoke-part-subline karaoke-stack-subline translation">{translation}</span>
                 )}
             </span>
