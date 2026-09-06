@@ -18,4 +18,3 @@ export class FakeFrames implements FrameScheduler {
     callbacks.forEach((callback) => callback(time));
   }
 }
-
