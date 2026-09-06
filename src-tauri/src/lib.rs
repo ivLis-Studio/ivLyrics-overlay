@@ -1,7 +1,9 @@
 use axum::{http::Method, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+mod polling;
+use polling::{poll_interval, IdleTimer};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime};
 use tower_http::cors::{Any, CorsLayer};
 
@@ -12,7 +14,6 @@ use windows::Win32::Foundation::{HWND, POINT};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_SHOWWINDOW,
 };
 
 // Track info from Spotify
@@ -659,12 +660,10 @@ fn macos_refresh_window_level<R: Runtime + 'static>(
         use cocoa::base::id;
 
         if let Some(window) = handle.get_webview_window("main") {
-            let _ = window.set_always_on_top(true);
-
             if let Ok(ns_window) = window.ns_window() {
                 let ns_window = ns_window as id;
                 unsafe {
-                    ns_window.setLevel_(25);
+                    if ns_window.level() != 25 { ns_window.setLevel_(25); }
                 }
             }
         }
@@ -923,25 +922,30 @@ pub fn run() {
                     let mut was_hovering = false;
                     let mut last_mouse_x = 0;
                     let mut last_mouse_y = 0;
-                    let mut idle_ticks = 0;
-                    let _max_idle_ticks = 30;
+                    let mut hover_idle = IdleTimer::default();
                     let mut last_window_x: i32 = 0;
                     let mut last_window_y: i32 = 0;
-                    let mut auto_lock_idle_ticks: i32 = 0;
-                    let mut always_on_top_ticks: i32 = 0;
-                    let always_on_top_interval: i32 = 5;
+                    let mut auto_lock_idle = IdleTimer::default();
+                    let mut last_topmost_refresh = Instant::now();
+                    let mut last_poll = Instant::now();
+                    let mut last_unlock_progress = 0.0;
 
                     loop {
-                        std::thread::sleep(Duration::from_millis(100));
+                        let locked = loop_lock_state.lock().map(|s| s.is_locked).unwrap_or(true);
+                        std::thread::sleep(poll_interval(locked, was_hovering));
+                        let elapsed = last_poll.elapsed();
+                        last_poll = Instant::now();
 
-                        always_on_top_ticks += 1;
-                        if always_on_top_ticks >= always_on_top_interval {
-                            always_on_top_ticks = 0;
+                        // Retain periodic recovery above other topmost windows, but
+                        // avoid two native writes every half second and never show a hidden window.
+                        if last_topmost_refresh.elapsed() >= Duration::from_secs(2) {
+                            last_topmost_refresh = Instant::now();
                             #[cfg(target_os = "macos")]
                             let _ = macos_refresh_window_level(&loop_app_handle);
 
                             #[cfg(not(target_os = "macos"))]
                             if let Some(window) = loop_app_handle.get_webview_window("main") {
+                                #[cfg(not(target_os = "windows"))]
                                 let _ = window.set_always_on_top(true);
 
                                 #[cfg(target_os = "windows")]
@@ -955,7 +959,7 @@ pub fn run() {
                                                 0,
                                                 0,
                                                 0,
-                                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                                             );
                                         }
                                     }
@@ -966,6 +970,7 @@ pub fn run() {
                         let mut current_hovering = false;
                         let mut current_x = 0;
                         let mut current_y = 0;
+                        let mut current_window_position = None;
 
                         #[cfg(target_os = "windows")]
                         {
@@ -982,6 +987,7 @@ pub fn run() {
 
                                         current_x = point.x;
                                         current_y = point.y;
+                                        current_window_position = Some((win_pos.x, win_pos.y));
                                         current_hovering = rel_x >= 0
                                             && rel_x < win_size.width as i32
                                             && rel_y >= 0
@@ -1009,6 +1015,7 @@ pub fn run() {
                                 current_x = snapshot.current_x;
                                 current_y = snapshot.current_y;
                                 current_hovering = snapshot.current_hovering;
+                                current_window_position = Some((snapshot.window_x, snapshot.window_y));
 
                                 if let Ok(mut state) = loop_lock_state.lock() {
                                     if state.is_locked {
@@ -1029,8 +1036,11 @@ pub fn run() {
                             let _ = loop_app_handle.emit("overlay-hover", current_hovering);
 
                             if !current_hovering {
-                                idle_ticks = 0;
-                                let _ = loop_app_handle.emit("unlock-progress", 0);
+                                hover_idle.reset();
+                                if last_unlock_progress != 0.0 {
+                                    last_unlock_progress = 0.0;
+                                    let _ = loop_app_handle.emit("unlock-progress", 0.0);
+                                }
                             }
                         }
 
@@ -1046,42 +1056,32 @@ pub fn run() {
                             })
                             .unwrap_or((true, 1.2, 3.0, true));
 
-                        let wait_ticks = (wait_time * 10.0) as i32;
-                        let hold_ticks = (hold_time * 10.0) as i32;
-                        let total_ticks = wait_ticks + hold_ticks;
-
                         if current_hovering && is_locked && hover_unlock_enabled {
                             let dist_sq =
                                 (current_x - last_mouse_x).pow(2) + (current_y - last_mouse_y).pow(2);
 
-                            if dist_sq < 25 {
-                                idle_ticks += 1;
-                            } else {
-                                idle_ticks = 0;
-                            }
+                            hover_idle.observe(dist_sq < 25, elapsed);
 
                             last_mouse_x = current_x;
                             last_mouse_y = current_y;
 
-                            let progress = if idle_ticks < wait_ticks {
-                                0.0
-                            } else {
-                                let effective_ticks = idle_ticks - wait_ticks;
-                                ((effective_ticks as f32 / hold_ticks as f32) * 100.0).min(100.0)
-                            };
+                            let progress = hover_idle.progress(wait_time, hold_time);
+                            if progress != last_unlock_progress {
+                                last_unlock_progress = progress;
+                                let _ = loop_app_handle.emit("unlock-progress", progress);
+                            }
 
-                            let _ = loop_app_handle.emit("unlock-progress", progress);
-
-                            if idle_ticks >= total_ticks {
+                            if hover_idle.seconds() >= wait_time + hold_time {
                                 if let Ok(mut state) = loop_lock_state.lock() {
                                     state.is_locked = false;
                                     let _ = loop_app_handle.emit("lock-state-update", false);
-                                    idle_ticks = 0;
+                                    hover_idle.reset();
                                 }
                             }
                         } else {
-                            if idle_ticks > 0 {
-                                idle_ticks = 0;
+                            hover_idle.reset();
+                            if last_unlock_progress != 0.0 {
+                                last_unlock_progress = 0.0;
                                 let _ = loop_app_handle.emit("unlock-progress", 0.0);
                             }
                             last_mouse_x = current_x;
@@ -1093,65 +1093,26 @@ pub fn run() {
                             .map(|s| (s.is_locked, s.enable_auto_lock, s.auto_lock_delay))
                             .unwrap_or((true, true, 3.0));
 
-                        if !is_locked_now && enable_auto_lock {
-                            let mut current_win_x: i32 = 0;
-                            let mut current_win_y: i32 = 0;
-
-                            #[cfg(target_os = "windows")]
-                            {
-                                if let Some(window) = loop_app_handle.get_webview_window("main") {
-                                    if let Ok(pos) = window.outer_position() {
-                                        current_win_x = pos.x;
-                                        current_win_y = pos.y;
+                        if let Some((current_win_x, current_win_y)) = current_window_position {
+                            if !is_locked_now && enable_auto_lock {
+                                auto_lock_idle.observe(
+                                    current_win_x == last_window_x && current_win_y == last_window_y,
+                                    elapsed,
+                                );
+                                if auto_lock_idle.seconds() >= auto_lock_delay {
+                                    if let Ok(mut state) = loop_lock_state.lock() {
+                                        state.is_locked = true;
+                                        let _ = loop_app_handle.emit("lock-state-update", true);
                                     }
+                                    auto_lock_idle.reset();
                                 }
-                            }
-
-                            #[cfg(target_os = "macos")]
-                            {
-                                if let Ok(Some(snapshot)) = macos_window_snapshot(&loop_app_handle) {
-                                    current_win_x = snapshot.window_x;
-                                    current_win_y = snapshot.window_y;
-                                }
-                            }
-
-                            if current_win_x == last_window_x && current_win_y == last_window_y {
-                                auto_lock_idle_ticks += 1;
                             } else {
-                                auto_lock_idle_ticks = 0;
-                                last_window_x = current_win_x;
-                                last_window_y = current_win_y;
+                                auto_lock_idle.reset();
                             }
-
-                            let required_ticks = (auto_lock_delay * 10.0) as i32;
-
-                            if auto_lock_idle_ticks >= required_ticks {
-                                if let Ok(mut state) = loop_lock_state.lock() {
-                                    state.is_locked = true;
-                                    let _ = loop_app_handle.emit("lock-state-update", true);
-                                    auto_lock_idle_ticks = 0;
-                                }
-                            }
+                            last_window_x = current_win_x;
+                            last_window_y = current_win_y;
                         } else {
-                            auto_lock_idle_ticks = 0;
-
-                            #[cfg(target_os = "windows")]
-                            {
-                                if let Some(window) = loop_app_handle.get_webview_window("main") {
-                                    if let Ok(pos) = window.outer_position() {
-                                        last_window_x = pos.x;
-                                        last_window_y = pos.y;
-                                    }
-                                }
-                            }
-
-                            #[cfg(target_os = "macos")]
-                            {
-                                if let Ok(Some(snapshot)) = macos_window_snapshot(&loop_app_handle) {
-                                    last_window_x = snapshot.window_x;
-                                    last_window_y = snapshot.window_y;
-                                }
-                            }
+                            auto_lock_idle.reset();
                         }
                     }
                 });
