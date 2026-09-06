@@ -10,7 +10,8 @@
     "build:app": "tauri build",
     "build:web": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "tsx --tsconfig tests/tsconfig.json --test tests/*.test.tsx"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -25,7 +26,11 @@
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/react-test-renderer": "^19.1.0",
     "@vitejs/plugin-react": "^4.6.0",
+    "esbuild": "^0.25.12",
+    "react-test-renderer": "^19.1.0",
+    "tsx": "^4.23.13",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }

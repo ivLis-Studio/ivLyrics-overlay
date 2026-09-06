@@ -1,4 +1,5 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { memo, useMemo, type CSSProperties, type ReactNode } from "react";
+import { useTimedRowPosition, type PlaybackClock } from "./playbackClock";
 import type { LyricLine, LyricSyllable, LyricVocalPart } from "./types";
 
 type KaraokeStyle = CSSProperties & Record<string, string | number | undefined>;
@@ -24,7 +25,8 @@ interface KaraokeVocalRow {
 
 interface KaraokeLyricsProps {
     line: LyricLine;
-    position: number;
+    position?: number;
+    clock?: PlaybackClock;
     isActive: boolean;
     showPhonetic: boolean;
     showTranslation: boolean;
@@ -268,73 +270,60 @@ const shouldWrapByWord = (text: string) => {
     return nonWhitespaceCount === 0 || noWrapScriptCount / nonWhitespaceCount < 0.45;
 };
 
-const wrapByWord = (timedChars: TimedChar[], charElements: ReactNode[]) => {
-    const wordElements: ReactNode[] = [];
-    let currentWord: ReactNode[] = [];
-    let currentWordStart = 0;
+interface WordGroup { start: number; end: number; wrapped: boolean }
 
+const prepareWordGroups = (timedChars: TimedChar[]): WordGroup[] => {
+    const groups: WordGroup[] = [];
+    let start = 0;
     timedChars.forEach((charInfo, index) => {
-        const element = charElements[index];
-        const isWhitespace = /\s/u.test(charInfo.char);
-        if (!isWhitespace && currentWord.length === 0) currentWordStart = index;
-
-        if (isWhitespace) {
-            if (currentWord.length > 0) {
-                currentWord.push(element);
-                wordElements.push(
-                    <span className="karaoke-word" key={`word-${currentWordStart}`}>{currentWord}</span>
-                );
-                currentWord = [];
-            } else {
-                wordElements.push(element);
-            }
-            return;
+        if (/\s/u.test(charInfo.char)) {
+            groups.push({ start, end: index + 1, wrapped: start !== index });
+            start = index + 1;
         }
-        currentWord.push(element);
     });
-
-    if (currentWord.length > 0) {
-        wordElements.push(
-            <span className="karaoke-word" key={`word-${currentWordStart}`}>{currentWord}</span>
-        );
-    }
-    return wordElements;
+    if (start < timedChars.length) groups.push({ start, end: timedChars.length, wrapped: true });
+    return groups;
 };
 
-const renderTextRun = (
-    timedChars: TimedChar[],
-    position: number,
-    isActive: boolean,
-    isComplete: boolean,
-    textDirection: "ltr" | "rtl",
-    activeCharIndex: number
-) => {
-    const segments: Array<{
-        type: "space" | "text";
-        startIndex: number;
-        text: string;
-        startTime: number;
-        endTime: number;
-    }> = [];
+const wrapByWord = (groups: WordGroup[], charElements: ReactNode[]) => groups.map((group) => (
+    group.wrapped
+        ? <span className="karaoke-word" key={`word-${group.start}`}>{charElements.slice(group.start, group.end)}</span>
+        : charElements[group.start]
+));
 
+interface TextRunSegment {
+    type: "space" | "text";
+    startIndex: number;
+    text: string;
+    startTime: number;
+    endTime: number;
+    direction: "ltr" | "rtl";
+}
+
+const prepareTextRun = (timedChars: TimedChar[], textDirection: "ltr" | "rtl") => {
+    const segments: TextRunSegment[] = [];
     timedChars.forEach((charInfo, index) => {
         const type = /\s/u.test(charInfo.char) ? "space" : "text";
         const previous = segments[segments.length - 1];
         if (!previous || previous.type !== type) {
-            segments.push({
-                type,
-                startIndex: index,
-                text: charInfo.char,
-                startTime: charInfo.startTime,
-                endTime: charInfo.endTime,
-            });
+            segments.push({ type, startIndex: index, text: charInfo.char,
+                startTime: charInfo.startTime, endTime: charInfo.endTime, direction: "ltr" });
         } else {
             previous.text += charInfo.char;
             previous.endTime = Math.max(previous.endTime, charInfo.endTime);
         }
     });
+    segments.forEach((segment) => { segment.direction = getTextDirection(segment.text); });
+    return textDirection === "rtl" ? segments.reverse() : segments;
+};
 
-    const renderSegments = textDirection === "rtl" ? [...segments].reverse() : segments;
+const renderTextRun = (
+    renderSegments: TextRunSegment[],
+    position: number,
+    isActive: boolean,
+    isComplete: boolean,
+    activeCharIndex: number
+) => {
     return renderSegments.map((segment) => {
         if (segment.type === "space") {
             return <span className="karaoke-text-run-space" key={`space-${segment.startIndex}`}>{segment.text}</span>;
@@ -364,7 +353,7 @@ const renderTextRun = (
         const style: KaraokeStyle = {};
         if (state === "active") {
             const softEdge = 10;
-            style["--karaoke-gradient-direction"] = getTextDirection(segment.text) === "rtl" ? "to left" : "to right";
+            style["--karaoke-gradient-direction"] = segment.direction === "rtl" ? "to left" : "to right";
             style["--karaoke-char-fill"] = `${fillValue}%`;
             style["--karaoke-char-fill-soft-start"] = `${Math.max(0, fillValue - softEdge)}%`;
             style["--karaoke-char-fill-soft-end"] = `${Math.min(100, fillValue + softEdge)}%`;
@@ -377,7 +366,7 @@ const renderTextRun = (
         return (
             <span
                 className={`karaoke-text-run-segment karaoke-text-run-segment--${state} ${bounce.active ? "is-bouncing" : ""}`}
-                dir={getTextDirection(segment.text)}
+                dir={segment.direction}
                 style={style}
                 key={`segment-${segment.startIndex}`}
             >
@@ -387,21 +376,23 @@ const renderTextRun = (
     });
 };
 
-const TimedKaraokeLine = ({
+const TimedKaraokeLine = memo(function TimedKaraokeLine({
     syllables,
     fallbackText,
     lineStart,
     lineEnd,
-    position,
-    isActive,
+    position: fallbackPosition = 0,
+    clock,
+    isActive: selected,
 }: {
     syllables: LyricSyllable[];
     fallbackText: string;
     lineStart: number;
     lineEnd?: number;
-    position: number;
+    position?: number;
+    clock?: PlaybackClock;
     isActive: boolean;
-}) => {
+}) {
     const timedChars = useMemo(
         () => compensateWhitespaceTiming(
             buildTimedChars(syllables, fallbackText, lineStart, lineEnd)
@@ -412,18 +403,38 @@ const TimedKaraokeLine = ({
         () => timedChars.reduce((max, charInfo) => Math.max(max, charInfo.endTime), lineStart),
         [timedChars, lineStart]
     );
+    const shape = useMemo(() => {
+        const text = timedChars.map((charInfo) => charInfo.char).join("");
+        const direction = getTextDirection(text);
+        const textRun = shouldUseTextRun(text);
+        const wordWrap = !textRun && shouldWrapByWord(text);
+        const segments = textRun ? prepareTextRun(timedChars, direction) : [];
+        // Text-run bounce is based on a whole joining-script segment, while
+        // ordinary text bounces per character. Include both fill and release.
+        const motionUnits = textRun ? segments : timedChars;
+        const start = motionUnits.reduce((min, unit) => Math.min(min, unit.startTime - 160), Infinity);
+        const end = motionUnits.reduce((max, unit) => {
+            const duration = Math.max(1, unit.endTime - unit.startTime);
+            const releaseEnd = unit.startTime + Math.max(180, Math.min(280, duration * 0.9))
+                + Math.max(420, Math.min(820, duration * 2.4));
+            return Math.max(max, unit.endTime, releaseEnd);
+        }, endTime);
+        return { direction, textRun, wordWrap, segments, start, end,
+            words: wordWrap ? prepareWordGroups(timedChars) : [] };
+    }, [timedChars, endTime]);
+    const position = useTimedRowPosition(clock, fallbackPosition, shape.start, shape.end, selected);
+    const isActive = selected;
     const isComplete = isActive && position >= endTime;
     const activeCharIndex = getActiveCharIndex(timedChars, position);
-    const text = useMemo(() => timedChars.map((charInfo) => charInfo.char).join(""), [timedChars]);
-    const textDirection = useMemo(() => getTextDirection(text), [text]);
+    const textDirection = shape.direction;
 
-    if (shouldUseTextRun(text)) {
+    if (shape.textRun) {
         return (
             <span
                 className={`karaoke-line is-text-run ${textDirection === "rtl" ? "is-rtl" : ""} ${isActive ? "is-active" : ""} ${isComplete ? "is-complete" : ""}`}
                 dir={textDirection === "rtl" ? "ltr" : textDirection}
             >
-                {renderTextRun(timedChars, position, isActive, isComplete, textDirection, activeCharIndex)}
+                {renderTextRun(shape.segments, position, isActive, isComplete, activeCharIndex)}
             </span>
         );
     }
@@ -463,11 +474,11 @@ const TimedKaraokeLine = ({
     });
 
     return (
-        <span className={`karaoke-line ${shouldWrapByWord(text) ? "has-word-wrap" : ""} ${isActive ? "is-active" : ""} ${isComplete ? "is-complete" : ""}`}>
-            {shouldWrapByWord(text) ? wrapByWord(timedChars, charElements) : charElements}
+        <span className={`karaoke-line ${shape.wordWrap ? "has-word-wrap" : ""} ${isActive ? "is-active" : ""} ${isComplete ? "is-complete" : ""}`}>
+            {shape.wordWrap ? wrapByWord(shape.words, charElements) : charElements}
         </span>
     );
-};
+});
 
 const normalizeSpeakerPresentation = (speaker: string, speakerColor: string, speakerFallback: string) => {
     const normalized = speaker.trim().replace(/[_-]+/g, " ").replace(/\s+/g, " ").toUpperCase();
@@ -514,22 +525,25 @@ const toVocalRow = (part: LyricVocalPart, index: number, role: "lead" | "backgro
     };
 };
 
+// Lyrics payload objects are immutable; weak keys release preparation with the track.
+const vocalRowsByLine = new WeakMap<LyricLine, KaraokeVocalRow[] | null>();
 const getVocalRows = (line: LyricLine) => {
+    if (vocalRowsByLine.has(line)) return vocalRowsByLine.get(line)!;
     const lead = line.vocals?.lead ? toVocalRow(line.vocals.lead, 0, "lead") : null;
-    if (!lead) return null;
+    if (!lead) {
+        vocalRowsByLine.set(line, null);
+        return null;
+    }
     const background = (line.vocals?.background || [])
         .map((part, index) => toVocalRow(part, index, "background"))
         .filter((row): row is KaraokeVocalRow => row !== null);
     const rows = [lead, ...background];
-    return rows.length > 1 ? rows : null;
+    const result = rows.length > 1 ? rows : null;
+    vocalRowsByLine.set(line, result);
+    return result;
 };
 
-export const hasKaraokeVocalRows = (line: LyricLine) => (
-    getValidSyllables(line.vocals?.lead?.syllables).length > 0
-    && (line.vocals?.background || []).some(
-        (part) => getValidSyllables(part.syllables).length > 0
-    )
-);
+export const hasKaraokeVocalRows = (line: LyricLine) => getVocalRows(line) !== null;
 
 const splitLineByParallelShape = (text: string, rows: KaraokeVocalRow[]) => {
     const value = text.trim();
@@ -656,9 +670,10 @@ const splitLineByVocalRowShape = (text: string, rows: KaraokeVocalRow[]) => {
 
 const normalizeKind = (kind: string) => kind.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
 
-export default function KaraokeLyrics({
+const KaraokeLyrics = memo(function KaraokeLyrics({
     line,
     position,
+    clock,
     isActive,
     showPhonetic,
     showTranslation,
@@ -666,25 +681,40 @@ export default function KaraokeLyrics({
     translation,
 }: KaraokeLyricsProps) {
     const vocalRows = useMemo(() => getVocalRows(line), [line]);
-    if (vocalRows) {
+    const vocalShape = useMemo(() => {
+        if (!vocalRows) return null;
         const splitPhonetics = splitLineByVocalRowShape(phonetic || "", vocalRows);
         const splitTranslations = splitLineByVocalRowShape(translation || "", vocalRows);
-        const hasRowPhonetic = vocalRows.some((row, index) => row.phonetic || splitPhonetics[index]);
-        const hasRowTranslation = vocalRows.some((row, index) => row.translation || splitTranslations[index]);
-
+        const rows = vocalRows.map((row, index) => ({
+            ...row,
+            presentation: normalizeSpeakerPresentation(row.speaker, row.speakerColor, row.speakerFallback),
+            kindClass: normalizeKind(row.kind),
+            phonetic: row.phonetic || splitPhonetics[index] || "",
+            translation: row.translation || splitTranslations[index] || "",
+        }));
+        return { rows, hasRowPhonetic: rows.some((row) => row.phonetic),
+            hasRowTranslation: rows.some((row) => row.translation) };
+    }, [vocalRows, phonetic, translation]);
+    const singleShape = useMemo(() => {
+        const directSyllables = Array.isArray(line.syllables) ? line.syllables : [];
+        const lead = line.vocals?.lead;
+        return {
+            syllables: directSyllables.length > 0 ? directSyllables
+                : (Array.isArray(lead?.syllables) ? lead.syllables : []),
+            presentation: normalizeSpeakerPresentation(line.speaker || lead?.speaker || "",
+                line.speakerColor || lead?.speakerColor || "", line.speakerFallback || lead?.speakerFallback || ""),
+            kind: normalizeKind(line.kind || lead?.kind || ""),
+        };
+    }, [line]);
+    if (vocalShape) {
+        const { rows, hasRowPhonetic, hasRowTranslation } = vocalShape;
         return (
             <span className="karaoke-stack">
-                {vocalRows.map((row, rowIndex) => {
-                    const presentation = normalizeSpeakerPresentation(
-                        row.speaker,
-                        row.speakerColor,
-                        row.speakerFallback
-                    );
-                    const rowPhonetic = row.phonetic || splitPhonetics[rowIndex] || "";
-                    const rowTranslation = row.translation || splitTranslations[rowIndex] || "";
+                {rows.map((row) => {
+                    const { presentation, phonetic: rowPhonetic, translation: rowTranslation } = row;
                     return (
                         <span
-                            className={`karaoke-part ${row.role} ${normalizeKind(row.kind)} ${presentation.speakerClass ? `speaker-${presentation.speakerClass}` : ""}`}
+                            className={`karaoke-part ${row.role} ${row.kindClass} ${presentation.speakerClass ? `speaker-${presentation.speakerClass}` : ""}`}
                             style={presentation.style}
                             key={row.key}
                         >
@@ -694,6 +724,7 @@ export default function KaraokeLyrics({
                                 lineStart={line.startTime}
                                 lineEnd={line.endTime}
                                 position={position}
+                                clock={clock}
                                 isActive={isActive}
                             />
                             {showPhonetic && rowPhonetic && (
@@ -715,21 +746,11 @@ export default function KaraokeLyrics({
         );
     }
 
-    const directSyllables = Array.isArray(line.syllables) ? line.syllables : [];
-    const syllables = directSyllables.length > 0
-        ? directSyllables
-        : (Array.isArray(line.vocals?.lead?.syllables) ? line.vocals.lead.syllables : []);
-    const lead = line.vocals?.lead;
-    const presentation = normalizeSpeakerPresentation(
-        line.speaker || lead?.speaker || "",
-        line.speakerColor || lead?.speakerColor || "",
-        line.speakerFallback || lead?.speakerFallback || ""
-    );
-    const kind = line.kind || lead?.kind || "";
+    const { syllables, presentation, kind } = singleShape;
 
     return (
         <span
-            className={`karaoke-single ${normalizeKind(kind)} ${presentation.speakerClass ? `speaker-${presentation.speakerClass}` : ""}`}
+            className={`karaoke-single ${kind} ${presentation.speakerClass ? `speaker-${presentation.speakerClass}` : ""}`}
             style={presentation.style}
         >
             <TimedKaraokeLine
@@ -738,8 +759,11 @@ export default function KaraokeLyrics({
                 lineStart={line.startTime}
                 lineEnd={line.endTime}
                 position={position}
+                clock={clock}
                 isActive={isActive}
             />
         </span>
     );
-}
+});
+
+export default KaraokeLyrics;

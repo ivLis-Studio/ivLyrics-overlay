@@ -28,6 +28,7 @@ import type { TrackInfo, LyricLine, LyricsData, ProgressData, LyricsEvent, Progr
 import SettingsPanel from "./SettingsPanel";
 import SetupWizard from "./SetupWizard";
 import KaraokeLyrics, { hasKaraokeVocalRows } from "./KaraokeLyrics";
+import { PlaybackClock, createLineLookup, useActiveLineIndex } from "./playbackClock";
 
 // Default settings
 const defaultSettings = {
@@ -450,7 +451,7 @@ function App() {
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [_isSynced, setIsSynced] = useState<boolean>(true);
   const [progress, setProgress] = useState<number>(0);
-  const [renderProgress, setRenderProgress] = useState<number>(0);
+  const [playbackClock] = useState(() => new PlaybackClock());
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [remaining, setRemaining] = useState<number>(Infinity);
   const [nextTrack, setNextTrack] = useState<{
@@ -488,25 +489,6 @@ function App() {
     [settings.karaokeEnabled, lyrics]
   );
 
-  // Sender updates arrive every 250ms. Interpolate between anchors so karaoke
-  // fill and bounce use the same frame-based playback position as ivLyrics.
-  useEffect(() => {
-    if (!isPlaying || !shouldAnimateKaraoke) {
-      setRenderProgress(progress);
-      return;
-    }
-
-    const baseProgress = progress;
-    const startedAt = performance.now();
-    let animationFrame = 0;
-    const tick = (now: number) => {
-      setRenderProgress(baseProgress + now - startedAt);
-      animationFrame = requestAnimationFrame(tick);
-    };
-    animationFrame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animationFrame);
-  }, [progress, isPlaying, shouldAnimateKaraoke]);
-
   // Update modal state
   type UpdateStatus =
     | "idle"
@@ -543,16 +525,8 @@ function App() {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
-  // Find active lyric line index
-  const activeLineIndex = useMemo(() => {
-    if (lyrics.length === 0) return -1;
-    for (let i = lyrics.length - 1; i >= 0; i--) {
-      if (renderProgress >= lyrics[i].startTime) {
-        return i;
-      }
-    }
-    return -1;
-  }, [lyrics, renderProgress]);
+  const lineLookup = useMemo(() => createLineLookup(lyrics), [lyrics]);
+  const activeLineIndex = useActiveLineIndex(playbackClock, lineLookup);
 
   // Get the active lyric line only
   const activeLine = useMemo(() => {
@@ -567,6 +541,31 @@ function App() {
   const [isDataTimedOut, setIsDataTimedOut] = useState(false);
   const dataTimeoutRef = useRef<number | null>(null);
   const DATA_TIMEOUT_MS = 5000; // 5 seconds
+
+  // Calculate visibility
+  // Hide when: paused (if setting enabled), OR no data received for 5+ seconds
+  const shouldHide = (settings.hideWhenPaused && !isPlaying && track !== null) || isDataTimedOut;
+  const hoverOpacity = settings.hoverAppearance === "transparent"
+    ? 0
+    : settings.hoverAppearance === "unchanged"
+      ? 1
+      : 0.2;
+  const calculatedOpacity = shouldHide
+    ? 0
+    : isHovering && settings.isLocked
+      ? hoverOpacity
+      : 1;
+
+  // The settings window and fully transparent overlay do not interpolate.
+  // Keep the anchor while hidden so visibility resumes at the current time.
+  useEffect(() => {
+    if (!isSettingsWindow) playbackClock.setPlayback(progress, isPlaying);
+  }, [playbackClock, progress, isPlaying, isSettingsWindow]);
+
+  useEffect(() => {
+    playbackClock.setEnabled(!isSettingsWindow && shouldAnimateKaraoke && calculatedOpacity > 0);
+    return () => playbackClock.setEnabled(false);
+  }, [playbackClock, isSettingsWindow, shouldAnimateKaraoke, calculatedOpacity]);
 
   // Reset data timeout timer
   const resetDataTimeout = useCallback(() => {
@@ -588,9 +587,12 @@ function App() {
     };
   }, []);
 
-  // Listen for events from Rust backend
+  // Playback payloads belong only to the overlay, never the settings window.
   useEffect(() => {
+    if (isSettingsWindow) return;
+    let disposed = false;
     const applyLyricsData = (lyricsData: LyricsData) => {
+      if (disposed) return;
       displayedLyricsTrackUriRef.current = lyricsData.trackUri || null;
       setTrack(lyricsData.track);
       // 싱크 데이터가 없는 일반 가사는 표시하지 않음
@@ -604,6 +606,7 @@ function App() {
     };
 
     const receiveLyricsData = (lyricsData: LyricsData) => {
+      if (disposed) return;
       const trackUri = lyricsData.trackUri || null;
       const progressTrackUri = progressTrackUriRef.current;
       if (trackUri && progressTrackUri && trackUri !== progressTrackUri) {
@@ -624,6 +627,7 @@ function App() {
     };
 
     const applyProgressData = (progressData: ProgressData) => {
+      if (disposed) return;
       const trackUri = progressData.trackUri || null;
       if (trackUri) {
         progressTrackUriRef.current = trackUri;
@@ -671,22 +675,31 @@ function App() {
     );
 
     Promise.all([unlistenLyrics, unlistenProgress])
-      .then(() => invoke<LatestPayloads>("get_latest_payloads"))
+      .then(() => disposed ? null : invoke<LatestPayloads>("get_latest_payloads"))
       .then((latest) => {
+        if (!latest || disposed) return;
         if (latest.progressData) applyProgressData(latest.progressData);
         if (latest.lyricsData) receiveLyricsData(latest.lyricsData);
       })
       .catch(console.error);
 
+    return () => {
+      disposed = true;
+      unlistenLyrics.then((fn) => fn());
+      unlistenProgress.then((fn) => fn());
+    };
+  }, [isSettingsWindow, resetDataTimeout]);
+
+  useEffect(() => {
     // Listen for lock state changes from Tray
     const unlistenLockUpdate = listen<boolean>("lock-state-update", (event) => {
       setSettings((prev) => ({ ...prev, isLocked: event.payload }));
     });
 
     // Listen for hover state from backend (for transparency)
-    const unlistenHover = listen<boolean>("overlay-hover", (event) => {
+    const unlistenHover = !isSettingsWindow ? listen<boolean>("overlay-hover", (event) => {
       setIsHovering(event.payload);
-    });
+    }) : null;
 
     // Initial setup: Sync lock state with backend
     if (!isSettingsWindow) {
@@ -701,10 +714,8 @@ function App() {
     }
 
     return () => {
-      unlistenLyrics.then((fn) => fn());
-      unlistenProgress.then((fn) => fn());
       unlistenLockUpdate.then((fn) => fn());
-      unlistenHover.then((fn) => fn());
+      unlistenHover?.then((fn) => fn());
     };
   }, []); // Run once
 
@@ -936,6 +947,21 @@ function App() {
     setIsSetupComplete(false);
   }, []);
 
+  // Listen for unlock progress from backend
+  useEffect(() => {
+    if (isSettingsWindow) return;
+    const unlistenUnlockProgress = listen<number>(
+      "unlock-progress",
+      (event) => {
+        setUnlockProgress(event.payload);
+      }
+    );
+
+    return () => {
+      unlistenUnlockProgress.then((fn) => fn());
+    };
+  }, [isSettingsWindow]);
+
   // If this is the settings window, render settings UI or setup wizard
   if (isSettingsWindow) {
     // Show setup wizard if not completed
@@ -1073,34 +1099,6 @@ function App() {
       : settings.textAlign === "right"
         ? "align-right"
         : "align-center";
-
-  // Listen for unlock progress from backend
-  useEffect(() => {
-    const unlistenUnlockProgress = listen<number>(
-      "unlock-progress",
-      (event) => {
-        setUnlockProgress(event.payload);
-      }
-    );
-
-    return () => {
-      unlistenUnlockProgress.then((fn) => fn());
-    };
-  }, []);
-
-  // Calculate visibility
-  // Hide when: paused (if setting enabled), OR no data received for 5+ seconds
-  const shouldHide = (settings.hideWhenPaused && !isPlaying && track !== null) || isDataTimedOut;
-  const hoverOpacity = settings.hoverAppearance === "transparent"
-    ? 0
-    : settings.hoverAppearance === "unchanged"
-      ? 1
-      : 0.2;
-  const calculatedOpacity = shouldHide
-    ? 0
-    : isHovering && settings.isLocked
-      ? hoverOpacity
-      : 1;
 
   // Determine if we should show next track info instead of current track
   const showNextTrackInfo =
@@ -1419,7 +1417,7 @@ function App() {
               return (
                 <KaraokeLyrics
                   line={lineInfo.line}
-                  position={renderProgress}
+                  clock={playbackClock}
                   isActive={lineInfo.isActive}
                   showPhonetic={settings.showPhonetic}
                   showTranslation={settings.showTranslation}
