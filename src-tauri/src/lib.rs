@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 mod polling;
+#[cfg(all(test, target_os = "windows"))]
+mod windows_transparency_test;
 use polling::{poll_interval, IdleTimer};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime};
 use tower_http::cors::{Any, CorsLayer};
@@ -423,7 +425,9 @@ async fn start_drag(window: tauri::Window) -> Result<(), String> {
 async fn set_ignore_cursor_events(window: tauri::Window, ignore: bool) -> Result<(), String> {
     window
         .set_ignore_cursor_events(ignore)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    refresh_windows_overlay_transparency(&window);
+    Ok(())
 }
 
 // Tauri command to update lock state from frontend
@@ -715,15 +719,62 @@ fn show_or_create_settings_window<R: Runtime, M: Manager<R>>(manager: &M) -> Res
 fn refresh_windows_overlay_transparency<R: Runtime, M: Manager<R>>(manager: &M) {
     #[cfg(target_os = "windows")]
     if let Some(window) = manager.get_webview_window("main") {
-        if let Err(error) =
-            window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)))
-        {
-            eprintln!("Failed to refresh Windows overlay transparency: {error}");
+        let overlay = window.clone();
+        // Cursor pass-through changes WS_EX_LAYERED on the window thread.
+        // Queue the repair behind that change, including calls from the polling
+        // thread, so the old style cannot overwrite the repaired composition.
+        if let Err(error) = window.run_on_main_thread(move || {
+            // WebView2 transparency only reveals the native host underneath it.
+            // Tao enables DWM alpha composition only at creation. If it is lost
+            // during startup or a window transition, a color reset cannot recover
+            // it. Reapply the same empty blur region before repainting.
+            match overlay.hwnd() {
+                Ok(hwnd) => {
+                    if let Err(error) = restore_windows_alpha_composition(HWND(hwnd.0 as *mut _)) {
+                        eprintln!("Failed to restore Windows overlay composition: {error}");
+                    }
+                }
+                Err(error) => eprintln!("Failed to get Windows overlay handle: {error}"),
+            }
+            if let Err(error) =
+                overlay.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)))
+            {
+                eprintln!("Failed to refresh Windows overlay transparency: {error}");
+            }
+        }) {
+            eprintln!("Failed to schedule Windows overlay transparency repair: {error}");
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     let _ = manager;
+}
+
+#[cfg(target_os = "windows")]
+fn restore_windows_alpha_composition(hwnd: HWND) -> Result<(), String> {
+    use windows::Win32::Graphics::Dwm::{
+        DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
+    };
+    use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject};
+
+    // Match Tao's transparent-window setup. The region belongs to us and must
+    // be released even when DWM rejects the request. No blur or global opacity
+    // is added: WebView2 and the page keep control of each pixel's alpha.
+    unsafe {
+        let region = CreateRectRgn(0, 0, -1, -1);
+        if region.0.is_null() {
+            return Err("Failed to allocate the transparent window region".into());
+        }
+        let blur = DWM_BLURBEHIND {
+            dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
+            fEnable: true.into(),
+            hRgnBlur: region,
+            fTransitionOnMaximized: false.into(),
+        };
+        let result = DwmEnableBlurBehindWindow(hwnd, &blur);
+        let _ = DeleteObject(region);
+        result.map_err(|error| error.to_string())
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -759,6 +810,25 @@ pub fn run() {
     }));
 
     tauri::Builder::default()
+        .on_page_load(|webview, payload| {
+            // Creating a settings window is asynchronous. Repair the overlay
+            // after navigation finishes as well as immediately after build().
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+                && matches!(webview.label(), "main" | "settings")
+            {
+                refresh_windows_overlay_transparency(webview);
+            }
+        })
+        .on_window_event(|window, event| {
+            if matches!(window.label(), "main" | "settings")
+                && matches!(
+                    event,
+                    tauri::WindowEvent::Focused(_) | tauri::WindowEvent::ThemeChanged(_)
+                )
+            {
+                refresh_windows_overlay_transparency(window);
+            }
+        })
         // Autostart may already have launched the overlay before the user opens it manually.
         // Keep one native overlay window and route subsequent launches to its settings window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -997,10 +1067,12 @@ pub fn run() {
                                             if state.is_locked {
                                                 if state.is_interactive {
                                                     let _ = window.set_ignore_cursor_events(true);
+                                                    refresh_windows_overlay_transparency(&window);
                                                     state.is_interactive = false;
                                                 }
                                             } else if !state.is_interactive {
                                                 let _ = window.set_ignore_cursor_events(false);
+                                                refresh_windows_overlay_transparency(&window);
                                                 state.is_interactive = true;
                                             }
                                         }
