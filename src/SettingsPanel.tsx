@@ -1096,7 +1096,7 @@ export default function SettingsPanel({
                                         value={settings.lyricsPrevLines}
                                         onChange={(v) => update("lyricsPrevLines", v)}
                                         min={0}
-                                        max={5}
+                                        max={10}
                                         step={1}
                                     />
                                 </SettingItem>
@@ -1105,7 +1105,7 @@ export default function SettingsPanel({
                                         value={settings.lyricsNextLines}
                                         onChange={(v) => update("lyricsNextLines", v)}
                                         min={0}
-                                        max={5}
+                                        max={10}
                                         step={1}
                                     />
                                 </SettingItem>

@@ -142,8 +142,8 @@ const defaultSettings = {
   albumArtBorderRadius: 8, // px
 
   // Multiple Lyrics Lines
-  lyricsPrevLines: 0, // 현재 줄 이전 표시할 줄 수 (0-5)
-  lyricsNextLines: 0, // 현재 줄 이후 표시할 줄 수 (0-5)
+  lyricsPrevLines: 0, // 현재 줄 이전 표시할 줄 수 (0-10)
+  lyricsNextLines: 0, // 현재 줄 이후 표시할 줄 수 (0-10)
   lyricsSetGap: 12, // 가사 세트 간 간격 (px)
   fadeNonActiveLyrics: true, // 현재 줄 외 가사 연하게 표시
   inactiveLyricsOpacity: 50, // NEW - 비활성 가사 투명도 (%)
@@ -1390,8 +1390,8 @@ function App() {
           if (activeLineIndex < 0 || lyrics.length === 0) return null;
 
           // 표시할 가사 줄 인덱스 계산 (이전 N개, 현재 1개, 이후 N개)
-          const prevLines = Math.max(0, Math.min(5, settings.lyricsPrevLines));
-          const nextLines = Math.max(0, Math.min(5, settings.lyricsNextLines));
+          const prevLines = Math.max(0, Math.min(10, settings.lyricsPrevLines));
+          const nextLines = Math.max(0, Math.min(10, settings.lyricsNextLines));
           const linesToShow: { line: LyricLine; index: number; isActive: boolean }[] = [];
 
           // 시작 인덱스 (현재 - 이전 줄 수)
