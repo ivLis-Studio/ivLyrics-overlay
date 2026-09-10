@@ -157,3 +157,123 @@ test("selected duet background keeps filling after the lead finishes its release
   assert.notEqual(rowState("background"), backgroundBefore, "background keeps its independent timed window");
   await act(() => renderer.unmount());
 });
+
+test("1–21 visible lyric rows notify only selected vocals and preserve output through seeks and selection changes", async () => {
+  for (const visibleRows of Array.from({ length: 21 }, (_, index) => index + 1)) {
+    const frames = new FakeFrames();
+    const clock = new PlaybackClock(frames);
+    const subscribe = clock.subscribe;
+    let subscribers = 0;
+    let notifications = 0;
+    clock.subscribe = (listener) => {
+      subscribers++;
+      const unsubscribe = subscribe(() => { notifications++; listener(); });
+      return () => { subscribers--; unsubscribe(); };
+    };
+    // The production App always retains this line-index consumer, including
+    // while the visible window contains only pending rows before the first line.
+    const releaseParent = clock.subscribe(() => {});
+    const line = fixtures.triple;
+    const lines = Array.from({ length: visibleRows }, () => line);
+    let selected = Math.floor(visibleRows / 2);
+    let showPhonetic = true;
+    let showTranslation = true;
+    const view = (useClock: boolean) => <>{lines.map((item, index) => (
+      <KaraokeLyrics key={index} line={item} clock={useClock ? clock : undefined}
+        position={useClock ? undefined : clock.getPosition()} isActive={selected === index}
+        {...auxiliary} showPhonetic={showPhonetic} showTranslation={showTranslation} />
+    ))}</>;
+    clock.setPlayback(1200, true);
+    clock.setEnabled(true);
+    let actual!: ReactTestRenderer;
+    let reference!: ReactTestRenderer;
+    await act(() => { actual = create(view(true)); reference = create(view(false)); });
+    try {
+      assert.equal(subscribers, 4, `${visibleRows} rows: parent + three selected vocals`);
+      const initialNotifications = notifications;
+      for (let frame = 1; frame <= 60; frame++) {
+        await act(() => frames.advance(frame * 10));
+        await act(() => reference.update(view(false)));
+        assert.deepEqual(actual.toJSON(), reference.toJSON(), `${visibleRows} rows frame ${frame}`);
+      }
+      assert.equal(notifications - initialNotifications, 60 * 4,
+        `${visibleRows} rows: inactive vocals receive no frame callbacks`);
+      for (const step of [
+        { position: 5000, selected: -1, playing: false, phonetic: false, translation: true },
+        { position: 990, selected: 0, playing: false, phonetic: true, translation: false },
+        { position: 1800, selected: visibleRows - 1, playing: true, phonetic: true, translation: true },
+        { position: 1450, selected: Math.floor(visibleRows / 2), playing: false, phonetic: false, translation: false },
+      ]) {
+        selected = step.selected;
+        showPhonetic = step.phonetic;
+        showTranslation = step.translation;
+        await act(() => {
+          clock.setPlayback(step.position, step.playing);
+          actual.update(view(true)); reference.update(view(false));
+        });
+        assert.equal(subscribers, selected < 0 ? 1 : 4, `${visibleRows} rows after selection ${selected}`);
+        assert.deepEqual(actual.toJSON(), reference.toJSON(), `${visibleRows} rows seek ${step.position}`);
+        assert.equal(frames.pending.size, step.playing ? 1 : 0, "pause/resume keeps the existing shared clock schedule");
+      }
+      await act(() => { clock.setEnabled(false); });
+      assert.equal(frames.pending.size, 0);
+      frames.advance(5000);
+      await act(() => { clock.setPlayback(1750, true); clock.setEnabled(true); });
+      await act(() => reference.update(view(false)));
+      assert.deepEqual(actual.toJSON(), reference.toJSON(), "reconnection uses the latest source position immediately");
+    } finally {
+      await act(() => { actual.unmount(); reference.unmount(); });
+      releaseParent();
+    }
+    assert.equal(subscribers, 0);
+    assert.equal(frames.pending.size, 0);
+  }
+});
+
+test("pending glyph rows need no subscription and subscribe to a replacement clock only when selected", async () => {
+  const frames = new FakeFrames();
+  const clocks = [new PlaybackClock(frames), new PlaybackClock(frames)];
+  const listeners = [0, 0];
+  const releases = clocks.map((clock, index) => {
+    const subscribe = clock.subscribe;
+    clock.subscribe = (listener) => {
+      listeners[index]++;
+      const unsubscribe = subscribe(listener);
+      return () => { listeners[index]--; unsubscribe(); };
+    };
+    clock.setPlayback(index ? 1750 : 1000, false);
+    return clock.subscribe(() => {});
+  });
+  let clock = clocks[0];
+  let line = fixtures.joining;
+  let selected = false;
+  let showPhonetic = false;
+  const view = (useClock: boolean) => <KaraokeLyrics line={line} isActive={selected}
+    clock={useClock ? clock : undefined} position={useClock ? undefined : clock.getPosition()}
+    {...auxiliary} showPhonetic={showPhonetic} />;
+  let actual!: ReactTestRenderer;
+  let reference!: ReactTestRenderer;
+  await act(() => { actual = create(view(true)); reference = create(view(false)); });
+  try {
+    assert.deepEqual(listeners, [1, 1]);
+    for (const fixture of Object.values(fixtures)) {
+      line = fixture;
+      clock = clocks[1];
+      selected = false;
+      showPhonetic = !showPhonetic;
+      await act(() => { actual.update(view(true)); reference.update(view(false)); });
+      assert.deepEqual(listeners, [1, 1], "source/clock/settings replacement leaves a pending row unsubscribed");
+      assert.deepEqual(actual.toJSON(), reference.toJSON());
+      selected = true;
+      await act(() => { actual.update(view(true)); reference.update(view(false)); });
+      assert.deepEqual(actual.toJSON(), reference.toJSON(), "selecting reads the replacement clock synchronously");
+      const expectedVocals = fixture.vocals?.background?.length ? fixture.vocals.background.length + 1 : 1;
+      assert.deepEqual(listeners, [1, expectedVocals + 1]);
+    }
+  } finally {
+    await act(() => { actual.unmount(); reference.unmount(); });
+    releases.forEach((release) => release());
+  }
+  assert.deepEqual(listeners, [0, 0]);
+  assert.equal(frames.pending.size, 0);
+});

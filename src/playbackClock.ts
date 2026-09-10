@@ -119,5 +119,9 @@ export function useTimedRowPosition(
     if (!isActive) return -Infinity;
     return Math.max(start, Math.min(end, position));
   }, [clock, fallbackPosition, start, end, isActive]);
-  return useSyncExternalStore(clock?.subscribe || noSubscription, snapshot, snapshot);
+  // Selection changes already arrive through props. An inactive row's constant
+  // snapshot needs no frame notifications; the App's line-index subscription
+  // keeps the shared clock current until that row becomes selected again.
+  const subscribe = clock && isActive ? clock.subscribe : noSubscription;
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
