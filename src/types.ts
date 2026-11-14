@@ -46,6 +46,7 @@ export interface LyricLine {
 }
 
 export interface LyricsData {
+    source?: string;
     trackUri?: string | null;
     track: TrackInfo;
     lyrics: LyricLine[];
@@ -59,9 +60,12 @@ export interface NextTrackInfo {
 }
 
 export interface ProgressData {
+    source?: string;
     trackUri?: string | null;
     position: number;
     isPlaying: boolean;
+    /** How often the sender repeats unchanged progress, in milliseconds. */
+    heartbeatMs?: number;
     duration?: number;
     remaining?: number;
     nextTrack?: NextTrackInfo | null;
@@ -73,6 +77,12 @@ export interface LyricsEvent {
 
 export interface ProgressEvent {
     progressData: ProgressData;
+}
+
+/** Another sender is shown: replace the displayed state with its own. */
+export interface SourceChangeEvent {
+    lyricsData?: LyricsData | null;
+    progressData?: ProgressData | null;
 }
 
 export interface LatestPayloads {

@@ -24,7 +24,7 @@ const GITHUB_OWNER = "ivLis-Studio";
 const GITHUB_REPO = "ivLyrics-overlay";
 const CURRENT_VERSION = __APP_VERSION__;
 import "./App.css";
-import type { TrackInfo, LyricLine, LyricsData, ProgressData, LyricsEvent, ProgressEvent, LatestPayloads } from "./types";
+import type { TrackInfo, LyricLine, LyricsData, ProgressData, LyricsEvent, ProgressEvent, LatestPayloads, SourceChangeEvent } from "./types";
 import SettingsPanel from "./SettingsPanel";
 import SetupWizard from "./SetupWizard";
 import KaraokeLyrics, { hasKaraokeVocalRows } from "./KaraokeLyrics";
@@ -537,10 +537,13 @@ function App() {
   // Hover state for opacity control
   const [isHovering, setIsHovering] = useState(false);
 
-  // Data reception timeout state - hide overlay when no data for 5 seconds
+  // Data reception timeout state - hide the overlay when its sender goes quiet.
+  // Senders that announce a heartbeat get a little over two intervals; others
+  // keep the original five seconds.
   const [isDataTimedOut, setIsDataTimedOut] = useState(false);
   const dataTimeoutRef = useRef<number | null>(null);
   const DATA_TIMEOUT_MS = 5000; // 5 seconds
+  const MAX_DATA_TIMEOUT_MS = 60000;
 
   // Calculate visibility
   // Hide when: paused (if setting enabled), OR no data received for 5+ seconds
@@ -568,14 +571,18 @@ function App() {
   }, [playbackClock, isSettingsWindow, shouldAnimateKaraoke, calculatedOpacity]);
 
   // Reset data timeout timer
-  const resetDataTimeout = useCallback(() => {
+  const resetDataTimeout = useCallback((heartbeatMs?: number) => {
     if (dataTimeoutRef.current) {
       clearTimeout(dataTimeoutRef.current);
     }
     setIsDataTimedOut(false);
+    const announced = Number(heartbeatMs);
+    const timeout = Number.isFinite(announced) && announced > 0
+      ? Math.min(MAX_DATA_TIMEOUT_MS, Math.max(DATA_TIMEOUT_MS, announced * 2 + 1000))
+      : DATA_TIMEOUT_MS;
     dataTimeoutRef.current = window.setTimeout(() => {
       setIsDataTimedOut(true);
-    }, DATA_TIMEOUT_MS);
+    }, timeout);
   }, []);
 
   // Cleanup timeout on unmount
@@ -657,7 +664,7 @@ function App() {
       if (progressData.nextTrack !== undefined) {
         setNextTrack(progressData.nextTrack);
       }
-      resetDataTimeout();
+      resetDataTimeout(progressData.heartbeatMs);
     };
 
     const unlistenLyrics = listen<LyricsEvent>("lyrics-update", (event) => {
@@ -680,7 +687,24 @@ function App() {
       }
     );
 
-    Promise.all([unlistenLyrics, unlistenProgress])
+    // Another program is now shown. Its state replaces everything displayed,
+    // including lyrics still waiting for their track's progress.
+    const unlistenSource = listen<SourceChangeEvent>("source-change", (event) => {
+      if (disposed) return;
+      const { lyricsData, progressData } = event.payload;
+      lyricsRevision++;
+      progressRevision++;
+      liveLyricsTrackUri = lyricsData?.trackUri || null;
+      pendingLyricsDataRef.current = null;
+      progressTrackUriRef.current = null;
+      clearDisplayedLyrics();
+      setProgress(0);
+      setIsPlaying(false);
+      if (progressData) applyProgressData(progressData);
+      if (lyricsData) receiveLyricsData(lyricsData);
+    });
+
+    Promise.all([unlistenLyrics, unlistenProgress, unlistenSource])
       .then(async () => {
         if (disposed) return null;
         const requestedLyricsRevision = lyricsRevision;
@@ -708,6 +732,7 @@ function App() {
       disposed = true;
       unlistenLyrics.then((fn) => fn());
       unlistenProgress.then((fn) => fn());
+      unlistenSource.then((fn) => fn());
     };
   }, [isSettingsWindow, resetDataTimeout]);
 

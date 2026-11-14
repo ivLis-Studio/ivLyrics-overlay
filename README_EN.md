@@ -78,7 +78,17 @@ If updating fails, use **Open Download Page** in the update message or get an in
 | Track information appears, but lyrics do not. | Plain lyrics without timing are not displayed in Overlay. Check that ivLyrics for PC has synced lyrics for the song. |
 | Translations, phonetic lyrics, or karaoke effects are missing. | Check the options in **Elements** and the data available in ivLyrics for PC. Translations and phonetic lyrics need the corresponding data; karaoke effects need syllable timing. |
 | The window cannot be moved or is off screen. | Use **Lock/Unlock** in the tray to unlock it, or select **Reset Position**. |
-| The window disappears or fades when hovered. | Check the pause and hover settings in **Behavior**. The window also hides after roughly five seconds without data from ivLyrics for PC, so check the connection. |
+| The window disappears or fades when hovered. | Check the pause and hover settings in **Behavior**. The window also hides when playback data from ivLyrics for PC stops for a while (about 5 seconds while playing, about 20 seconds while paused), so check the connection. |
+
+## Sending lyrics from another program
+
+Programs other than ivLyrics for PC can send lyrics over the same local connection.
+
+- `POST /lyrics`: track information and lyrics (`trackUri`, `track`, `lyrics`, `isSynced`)
+- `POST /progress`: playback position (`trackUri`, `position`, `isPlaying`)
+- `GET /status`: connection check. It does not change what is displayed.
+
+When several programs send at once, Overlay shows the one that is playing. If more than one is playing, it shows the one that started playing last, and a paused program never clears another program's lyrics. Add `source` (your program's name) to a request to get a response saying whether it is shown, and add `heartbeatMs` (how often you resend unchanged progress) to keep the window visible for about twice that interval. Requests without a name are told apart by their origin.
 
 ## Data and limitations
 

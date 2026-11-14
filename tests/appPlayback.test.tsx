@@ -47,6 +47,7 @@ test("production App playback, bootstrap and supplement regressions", async (t) 
     const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
     const calls: string[] = [];
     const timers = new Map<number, () => void>();
+    const timerDelays = new Map<number, number | undefined>();
     const browserListeners = new Map<string, Set<(event: unknown) => void>>();
     const bootstraps: Promise<unknown>[] = [];
     let timerId = 0;
@@ -64,7 +65,11 @@ test("production App playback, bootstrap and supplement regressions", async (t) 
       removeEventListener(name: string, callback: (event: unknown) => void) {
         browserListeners.get(name)?.delete(callback);
       },
-      setTimeout(callback: () => void) { timers.set(++timerId, callback); return timerId; },
+      setTimeout(callback: () => void, delay?: number) {
+        timers.set(++timerId, callback);
+        timerDelays.set(timerId, delay);
+        return timerId;
+      },
     };
     const native = {
       listen(name: string, callback: (event: { payload: unknown }) => void) {
@@ -199,6 +204,42 @@ test("production App playback, bootstrap and supplement regressions", async (t) 
       }));
       await act(() => progress(1500, false, "spotify:track:new"));
       assert.ok(markup().includes("현재 번역"), "new-track lyrics must remain available for its progress");
+      await unmount();
+    });
+    await t.test("a source change replaces displayed and pending lyrics with the new sender's state", async () => {
+      await mount();
+      await act(() => {
+        progress(1500, true, "spotify:track:one");
+        emit("lyrics-update", { lyricsData: baseLyrics("spotify:track:one", true) });
+        emit("lyrics-update", { lyricsData: { ...baseLyrics("spotify:track:next"), lyrics: [{ startTime: 0, text: "Queued" }] } });
+      });
+      assert.ok(markup().includes("현재 번역"));
+      await act(() => emit("source-change", {
+        progressData: { source: "player", trackUri: "player:two", position: 1500, isPlaying: true },
+        lyricsData: { ...baseLyrics("player:two"), lyrics: [
+          { startTime: 0, text: "Other before" },
+          { startTime: 1000, text: "Other current", transText: "다른 프로그램 번역" },
+        ] },
+      }));
+      assert.ok(markup().includes("다른 프로그램 번역"), "the new sender's lyrics are shown at once");
+      assert.ok(!markup().includes("현재 번역"), "the previous sender's lyrics are gone");
+      await act(() => progress(1500, true, "spotify:track:next"));
+      assert.ok(!markup().includes("Queued"), "lyrics queued by the previous sender cannot reappear");
+      await act(() => emit("source-change", { progressData: { trackUri: "legacy", position: 0, isPlaying: false } }));
+      assert.ok(!markup().includes("다른 프로그램 번역"), "a sender without lyrics clears the display");
+      await unmount();
+    });
+    await t.test("announced heartbeats set how long the overlay waits before hiding", async () => {
+      await mount();
+      const lastDelay = () => timerDelays.get(timerId);
+      await act(() => progress(1000, false));
+      assert.equal(lastDelay(), 5000, "senders without a heartbeat keep the five-second window");
+      await act(() => emit("progress-update", { progressData: { trackUri: "spotify:track:one", position: 1000, isPlaying: false, heartbeatMs: 10000 } }));
+      assert.equal(lastDelay(), 21000);
+      await act(() => emit("progress-update", { progressData: { trackUri: "spotify:track:one", position: 1000, isPlaying: true, heartbeatMs: 2000 } }));
+      assert.equal(lastDelay(), 5000);
+      await act(() => emit("progress-update", { progressData: { trackUri: "spotify:track:one", position: 1000, isPlaying: false, heartbeatMs: 600000 } }));
+      assert.equal(lastDelay(), 60000);
       await unmount();
     });
     await t.test("an explicit live clear and unmount remain authoritative over bootstrap", async () => {

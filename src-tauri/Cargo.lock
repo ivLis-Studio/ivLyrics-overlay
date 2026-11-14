@@ -2597,6 +2597,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
  "tokio",
+ "tower",
  "tower-http 0.5.2",
  "windows 0.58.0",
 ]

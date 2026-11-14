@@ -1,15 +1,16 @@
-use axum::{http::Method, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 mod polling;
+mod server;
+mod sources;
 #[cfg(target_os = "windows")]
 mod windows_transparency;
 #[cfg(all(test, target_os = "windows"))]
 mod windows_transparency_test;
 use polling::{poll_interval, IdleTimer};
+use sources::{SourceHub, Update};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime};
-use tower_http::cors::{Any, CorsLayer};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -104,6 +105,9 @@ pub struct LyricLine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricsData {
+    /// Names the sending program. Unnamed senders are told apart by origin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     #[serde(default)]
     pub track_uri: Option<String>,
     pub track: TrackInfo,
@@ -115,10 +119,16 @@ pub struct LyricsData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     #[serde(default)]
     pub track_uri: Option<String>,
     pub position: u64,
     pub is_playing: bool,
+    /// How often the sender repeats unchanged progress. The overlay waits a
+    /// little over two intervals before treating the sender as gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heartbeat_ms: Option<u64>,
     #[serde(default)]
     pub duration: Option<u64>,
     #[serde(default)]
@@ -149,17 +159,19 @@ pub struct ProgressEvent {
     pub progress_data: ProgressData,
 }
 
+/// Another sender is shown: the window replaces what it displays.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceChangeEvent {
+    pub lyrics_data: Option<LyricsData>,
+    pub progress_data: Option<ProgressData>,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LatestPayloads {
     lyrics_data: Option<LyricsData>,
     progress_data: Option<ProgressData>,
-}
-
-// Shared state for HTTP server
-struct AppState<R: Runtime> {
-    app_handle: AppHandle<R>,
-    latest_payloads: Arc<Mutex<LatestPayloads>>,
 }
 
 // HTTP Server port state
@@ -297,56 +309,34 @@ async fn set_tray_language(
     Ok(())
 }
 
-// HTTP endpoint handlers
-async fn handle_lyrics<R: Runtime>(
-    axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>,
-    Json(lyrics_data): Json<LyricsData>,
-) -> &'static str {
-    if let Ok(mut latest) = state.latest_payloads.lock() {
-        latest.lyrics_data = Some(lyrics_data.clone());
-    }
-    // Emit to frontend
-    let _ = state
-        .app_handle
-        .emit("lyrics-update", LyricsEvent { lyrics_data });
-    "OK"
-}
-
-async fn handle_progress<R: Runtime>(
-    axum::extract::State(state): axum::extract::State<Arc<AppState<R>>>,
-    Json(progress_data): Json<ProgressData>,
-) -> &'static str {
-    if let Ok(mut latest) = state.latest_payloads.lock() {
-        latest.progress_data = Some(progress_data.clone());
-    }
-    // Emit to frontend
-    let _ = state
-        .app_handle
-        .emit("progress-update", ProgressEvent { progress_data });
-    "OK"
-}
-
 // Start HTTP server with custom port
 async fn start_http_server<R: Runtime>(
     app_handle: AppHandle<R>,
     port: u16,
-    latest_payloads: Arc<Mutex<LatestPayloads>>,
+    hub: Arc<Mutex<SourceHub>>,
 ) {
-    let state = Arc::new(AppState {
-        app_handle: app_handle.clone(),
-        latest_payloads,
+    let window = app_handle.clone();
+    let app = server::router(server::ServerState {
+        hub,
+        version: app_handle.package_info().version.to_string(),
+        sink: Arc::new(move |update| {
+            let _ = match update {
+                Update::Lyrics(lyrics_data) => {
+                    window.emit("lyrics-update", LyricsEvent { lyrics_data })
+                }
+                Update::Progress(progress_data) => {
+                    window.emit("progress-update", ProgressEvent { progress_data })
+                }
+                Update::Switch { lyrics, progress } => window.emit(
+                    "source-change",
+                    SourceChangeEvent {
+                        lyrics_data: lyrics,
+                        progress_data: progress,
+                    },
+                ),
+            };
+        }),
     });
-
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([Method::POST, Method::GET, Method::OPTIONS])
-        .allow_headers(Any);
-
-    let app = Router::new()
-        .route("/lyrics", post(handle_lyrics::<R>))
-        .route("/progress", post(handle_progress::<R>))
-        .layer(cors)
-        .with_state(state);
 
     let addr = format!("127.0.0.1:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -365,12 +355,13 @@ async fn start_http_server<R: Runtime>(
 
 #[tauri::command]
 async fn get_latest_payloads(
-    state: tauri::State<'_, Arc<Mutex<LatestPayloads>>>,
+    state: tauri::State<'_, Arc<Mutex<SourceHub>>>,
 ) -> Result<LatestPayloads, String> {
-    state
-        .lock()
-        .map(|latest| latest.clone())
-        .map_err(|e| e.to_string())
+    let (lyrics_data, progress_data) = server::lock_hub(&state).shown();
+    Ok(LatestPayloads {
+        lyrics_data,
+        progress_data,
+    })
 }
 
 // Tauri command to get current server port
@@ -767,7 +758,7 @@ pub fn run() {
     // Shared state for HTTP server port
     let port_state = Arc::new(Mutex::new(HttpServerPort { port: server_port }));
 
-    let latest_payloads = Arc::new(Mutex::new(LatestPayloads::default()));
+    let source_hub = Arc::new(Mutex::new(SourceHub::default()));
 
     // Load language setting
     let saved_language = load_language_setting();
@@ -816,7 +807,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init()) // Deep Link / URL Scheme
         .manage(lock_state.clone()) // Manage properly in Tauri state
         .manage(port_state.clone()) // Manage port state
-        .manage(latest_payloads.clone()) // Retain the latest HTTP payloads across frontend reloads
+        .manage(source_hub.clone()) // Retain each sender's latest payloads across frontend reloads
         .setup(move |app| {
             // Get localized tray strings
             let tray_strings = get_tray_strings(&saved_language);
@@ -938,9 +929,9 @@ pub fn run() {
             // Start HTTP server in background with custom port
             let app_handle_http = app_handle.clone();
             let http_port = server_port;
-            let http_latest_payloads = latest_payloads.clone();
+            let http_source_hub = source_hub.clone();
             tauri::async_runtime::spawn(async move {
-                start_http_server(app_handle_http, http_port, http_latest_payloads).await;
+                start_http_server(app_handle_http, http_port, http_source_hub).await;
             });
 
             // Auto-open settings window on startup (unless startMinimized is enabled)
