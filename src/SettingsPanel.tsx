@@ -150,6 +150,8 @@ const strings = {
         visibilitySection: "표시 조건",
         hideWhenPaused: "일시정지 시 숨기기",
         hideWhenPausedDesc: "음악이 멈추면 오버레이 숨김",
+        hideInFullscreen: "전체 화면 앱 실행 중 숨기기",
+        hideInFullscreenDesc: "게임이나 전체 화면 동영상이 같은 모니터 앞에 있으면 오버레이를 숨깁니다. 게임의 프레임 생성(DLSS FG, AFMF)이 켜지도록 화면에서 완전히 빠집니다. (Windows)",
         hoverAppearance: "마우스 오버 시 표시",
         hoverAppearanceDesc: "잠긴 오버레이에 마우스를 올렸을 때 표시 방식",
         hoverTransparent: "투명",
@@ -388,6 +390,8 @@ const strings = {
         visibilitySection: "Visibility",
         hideWhenPaused: "Hide When Paused",
         hideWhenPausedDesc: "Hide overlay when music is paused",
+        hideInFullscreen: "Hide While a Full-Screen App Runs",
+        hideInFullscreenDesc: "Hide the overlay while a game or full-screen video is in front on the same monitor. It leaves the screen entirely, so frame generation (DLSS FG, AFMF) can work. (Windows)",
         hoverAppearance: "Appearance on Hover",
         hoverAppearanceDesc: "How the locked overlay appears while the mouse is over it",
         hoverTransparent: "Transparent",
@@ -1531,6 +1535,9 @@ export default function SettingsPanel({
                             <SettingSection title={t.visibilitySection} delay={0}>
                                 <SettingItem label={t.hideWhenPaused} description={t.hideWhenPausedDesc}>
                                     <Toggle checked={settings.hideWhenPaused} onChange={(v) => update("hideWhenPaused", v)} />
+                                </SettingItem>
+                                <SettingItem label={t.hideInFullscreen} description={t.hideInFullscreenDesc}>
+                                    <Toggle checked={settings.hideInFullscreen} onChange={(v) => update("hideInFullscreen", v)} />
                                 </SettingItem>
                                 <SettingItem label={t.hoverAppearance} description={t.hoverAppearanceDesc} column>
                                     <SegmentedControl

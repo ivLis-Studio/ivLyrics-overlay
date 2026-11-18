@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
+mod fullscreen;
 mod polling;
 mod server;
 mod sources;
@@ -18,8 +20,67 @@ use tauri::tray::TrayIconBuilder;
 use windows::Win32::Foundation::{HWND, POINT};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    GetCursorPos, GetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOWNOACTIVATE,
 };
+
+/// Whether the overlay is hidden and whether a full-screen app is in front.
+#[derive(Default)]
+struct OverlayVisibility {
+    hidden: AtomicBool,
+    fullscreen_app: AtomicBool,
+}
+
+#[cfg(target_os = "windows")]
+fn raise_overlay_topmost(hwnd: HWND) {
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+// A hidden overlay used to stay on screen fully transparent. Any window left
+// over a game keeps Windows from presenting it directly, which turns off frame
+// generation (DLSS Frame Generation, AMD Fluid Motion Frames), so a hidden
+// overlay now leaves the screen. It returns without taking focus from the game.
+#[tauri::command]
+async fn set_overlay_hidden(
+    app: AppHandle,
+    visibility: tauri::State<'_, Arc<OverlayVisibility>>,
+    hidden: bool,
+) -> Result<(), String> {
+    visibility.hidden.store(hidden, Ordering::Relaxed);
+    #[cfg(target_os = "windows")]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "overlay window not found".to_string())?;
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        let hwnd = HWND(hwnd.0 as *mut _);
+        unsafe {
+            let _ = ShowWindow(hwnd, if hidden { SW_HIDE } else { SW_SHOWNOACTIVATE });
+        }
+        if !hidden {
+            raise_overlay_topmost(hwnd);
+            refresh_windows_overlay_transparency(&window);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_fullscreen_app_active(visibility: tauri::State<'_, Arc<OverlayVisibility>>) -> bool {
+    visibility.fullscreen_app.load(Ordering::Relaxed)
+}
 
 // Track info from Spotify
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -759,6 +820,7 @@ pub fn run() {
     let port_state = Arc::new(Mutex::new(HttpServerPort { port: server_port }));
 
     let source_hub = Arc::new(Mutex::new(SourceHub::default()));
+    let overlay_visibility = Arc::new(OverlayVisibility::default());
 
     // Load language setting
     let saved_language = load_language_setting();
@@ -808,6 +870,7 @@ pub fn run() {
         .manage(lock_state.clone()) // Manage properly in Tauri state
         .manage(port_state.clone()) // Manage port state
         .manage(source_hub.clone()) // Retain each sender's latest payloads across frontend reloads
+        .manage(overlay_visibility.clone())
         .setup(move |app| {
             // Get localized tray strings
             let tray_strings = get_tray_strings(&saved_language);
@@ -953,6 +1016,7 @@ pub fn run() {
                 // so the macOS path below dispatches native calls via run_on_main_thread.
                 let loop_lock_state = lock_state.clone();
                 let loop_app_handle = app_handle.clone();
+                let loop_visibility = overlay_visibility.clone();
 
                 std::thread::spawn(move || {
                     let mut was_hovering = false;
@@ -963,6 +1027,12 @@ pub fn run() {
                     let mut last_window_y: i32 = 0;
                     let mut auto_lock_idle = IdleTimer::default();
                     let mut last_topmost_refresh = Instant::now();
+                    #[cfg(target_os = "windows")]
+                    let mut last_foreground: isize = 0;
+                    #[cfg(target_os = "windows")]
+                    let mut last_fullscreen_check = Instant::now();
+                    #[cfg(not(target_os = "windows"))]
+                    let _ = &loop_visibility;
                     let mut last_poll = Instant::now();
                     let mut last_unlock_progress = 0.0;
 
@@ -972,9 +1042,38 @@ pub fn run() {
                         let elapsed = last_poll.elapsed();
                         last_poll = Instant::now();
 
+                        // Opening the Start menu or a taskbar flyout raises the taskbar over
+                        // every topmost window, and it stayed above the overlay until the
+                        // next two-second refresh. A change of foreground window (the menu
+                        // closing, a click elsewhere) now raises the overlay again at once.
+                        #[cfg(target_os = "windows")]
+                        let mut raise_now = false;
+                        #[cfg(target_os = "windows")]
+                        {
+                            let foreground = unsafe { GetForegroundWindow() }.0 as isize;
+                            let foreground_changed = foreground != last_foreground;
+                            if foreground_changed {
+                                last_foreground = foreground;
+                                raise_now = true;
+                            }
+                            if foreground_changed || last_fullscreen_check.elapsed() >= Duration::from_secs(1) {
+                                last_fullscreen_check = Instant::now();
+                                if let Some(window) = loop_app_handle.get_webview_window("main") {
+                                    if let Ok(hwnd) = window.hwnd() {
+                                        let active = fullscreen::foreground_is_fullscreen_near(HWND(hwnd.0 as *mut _));
+                                        if loop_visibility.fullscreen_app.swap(active, Ordering::Relaxed) != active {
+                                            let _ = loop_app_handle.emit("fullscreen-app", active);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        let raise_now = false;
+
                         // Retain periodic recovery above other topmost windows, but
                         // avoid two native writes every half second and never show a hidden window.
-                        if last_topmost_refresh.elapsed() >= Duration::from_secs(2) {
+                        if raise_now || last_topmost_refresh.elapsed() >= Duration::from_secs(2) {
                             last_topmost_refresh = Instant::now();
                             #[cfg(target_os = "macos")]
                             let _ = macos_refresh_window_level(&loop_app_handle);
@@ -985,19 +1084,9 @@ pub fn run() {
                                 let _ = window.set_always_on_top(true);
 
                                 #[cfg(target_os = "windows")]
-                                {
+                                if !loop_visibility.hidden.load(Ordering::Relaxed) {
                                     if let Ok(hwnd) = window.hwnd() {
-                                        unsafe {
-                                            let _ = SetWindowPos(
-                                                HWND(hwnd.0 as *mut _),
-                                                HWND_TOPMOST,
-                                                0,
-                                                0,
-                                                0,
-                                                0,
-                                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                                            );
-                                        }
+                                        raise_overlay_topmost(HWND(hwnd.0 as *mut _));
                                     }
                                 }
                             }
@@ -1174,7 +1263,9 @@ pub fn run() {
             restart_app,
             set_tray_language,
             get_start_minimized,
-            set_start_minimized
+            set_start_minimized,
+            set_overlay_hidden,
+            get_fullscreen_app_active
         ])
 
         .run(tauri::generate_context!())

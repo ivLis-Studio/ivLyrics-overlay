@@ -23,6 +23,8 @@ interface GitHubRelease {
 const GITHUB_OWNER = "ivLis-Studio";
 const GITHUB_REPO = "ivLyrics-overlay";
 const CURRENT_VERSION = __APP_VERSION__;
+// How long the overlay takes to fade out or in.
+const OVERLAY_FADE_MS = 300;
 import "./App.css";
 import type { TrackInfo, LyricLine, LyricsData, ProgressData, LyricsEvent, ProgressEvent, LatestPayloads, SourceChangeEvent } from "./types";
 import SettingsPanel from "./SettingsPanel";
@@ -115,6 +117,7 @@ const defaultSettings = {
 
   // Visibility Options
   hideWhenPaused: false,
+  hideInFullscreen: false,
   hoverAppearance: "translucent" as "transparent" | "translucent" | "unchanged",
   showNextTrack: true,
   nextTrackSeconds: 15,
@@ -264,6 +267,7 @@ const strings = {
     // Visibility
     visibilitySection: "표시 옵션",
     hideWhenPaused: "일시정지 시 숨기기",
+    hideInFullscreen: "전체 화면 앱 실행 중 숨기기",
     showNextTrack: "다음 곡 미리보기",
     nextTrackSeconds: "다음 곡 표시 시간",
     nextTrackLabel: "다음 곡",
@@ -404,6 +408,7 @@ const strings = {
     // Visibility
     visibilitySection: "Visibility Options",
     hideWhenPaused: "Hide when paused",
+    hideInFullscreen: "Hide while a full-screen app runs",
     showNextTrack: "Show next track preview",
     nextTrackSeconds: "Next track display time",
     nextTrackLabel: "Next",
@@ -545,9 +550,27 @@ function App() {
   const DATA_TIMEOUT_MS = 5000; // 5 seconds
   const MAX_DATA_TIMEOUT_MS = 60000;
 
+  // A full-screen app (a game, a full-screen video) in front on the overlay's
+  // monitor, reported by the native side on Windows.
+  const [isFullscreenAppActive, setIsFullscreenAppActive] = useState(false);
+  useEffect(() => {
+    if (isSettingsWindow) return;
+    let disposed = false;
+    invoke<boolean>("get_fullscreen_app_active")
+      .then((active) => { if (!disposed) setIsFullscreenAppActive(active === true); })
+      .catch(() => undefined);
+    const unlisten = listen<boolean>("fullscreen-app", (event) => setIsFullscreenAppActive(event.payload === true));
+    return () => {
+      disposed = true;
+      unlisten.then((dispose) => dispose()).catch(() => undefined);
+    };
+  }, [isSettingsWindow]);
+
   // Calculate visibility
-  // Hide when: paused (if setting enabled), OR no data received for 5+ seconds
-  const shouldHide = (settings.hideWhenPaused && !isPlaying && track !== null) || isDataTimedOut;
+  // Hide when: paused (if setting enabled), OR no data received for 5+ seconds,
+  // OR a full-screen app is in front (if setting enabled)
+  const shouldHide = (settings.hideWhenPaused && !isPlaying && track !== null) || isDataTimedOut
+    || (settings.hideInFullscreen && isFullscreenAppActive);
   const hoverOpacity = settings.hoverAppearance === "transparent"
     ? 0
     : settings.hoverAppearance === "unchanged"
@@ -558,6 +581,22 @@ function App() {
     : isHovering && settings.isLocked
       ? hoverOpacity
       : 1;
+
+  // A hidden overlay leaves the screen once it has faded out, instead of
+  // staying on top fully transparent: any window over a game keeps Windows from
+  // presenting it directly and turns off frame generation. It comes back at once,
+  // without taking focus.
+  useEffect(() => {
+    if (isSettingsWindow) return;
+    if (!shouldHide) {
+      invoke("set_overlay_hidden", { hidden: false }).catch(() => undefined);
+      return;
+    }
+    const timer = setTimeout(() => {
+      invoke("set_overlay_hidden", { hidden: true }).catch(() => undefined);
+    }, OVERLAY_FADE_MS + 50);
+    return () => clearTimeout(timer);
+  }, [shouldHide, isSettingsWindow]);
 
   // The settings window and fully transparent overlay do not interpolate.
   // Keep the anchor while hidden so visibility resumes at the current time.
@@ -1159,7 +1198,7 @@ function App() {
       style={
         {
           opacity: calculatedOpacity,
-          transition: "opacity 0.3s ease", // Smooth transition
+          transition: `opacity ${OVERLAY_FADE_MS}ms ease`, // Smooth transition
           background:
             settings.backgroundMode === "solid"
               ? hexToRgba(

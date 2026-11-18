@@ -436,6 +436,7 @@ export function applyPreset(
         autoLockDelay: currentSettings.autoLockDelay,
         // Keep behavior settings
         hideWhenPaused: currentSettings.hideWhenPaused,
+        hideInFullscreen: currentSettings.hideInFullscreen,
         hoverAppearance: currentSettings.hoverAppearance,
         showNextTrack: currentSettings.showNextTrack,
         nextTrackSeconds: currentSettings.nextTrackSeconds,
