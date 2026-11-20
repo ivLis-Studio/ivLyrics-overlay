@@ -30,7 +30,7 @@ import type { TrackInfo, LyricLine, LyricsData, ProgressData, LyricsEvent, Progr
 import SettingsPanel from "./SettingsPanel";
 import SetupWizard from "./SetupWizard";
 import KaraokeLyrics, { hasKaraokeVocalRows } from "./KaraokeLyrics";
-import { PlaybackClock, createLineLookup, useActiveLineIndex } from "./playbackClock";
+import { PlaybackClock, createLineLookup, createNextLineStart, useActiveLineIndex } from "./playbackClock";
 
 // Default settings
 const defaultSettings = {
@@ -531,6 +531,7 @@ function App() {
   }, []);
 
   const lineLookup = useMemo(() => createLineLookup(lyrics), [lyrics]);
+  const nextLineStart = useMemo(() => createNextLineStart(lyrics), [lyrics]);
   const activeLineIndex = useActiveLineIndex(playbackClock, lineLookup);
 
   // Get the active lyric line only
@@ -605,7 +606,14 @@ function App() {
   }, [playbackClock, progress, isPlaying, isSettingsWindow]);
 
   useEffect(() => {
-    playbackClock.setEnabled(!isSettingsWindow && shouldAnimateKaraoke && calculatedOpacity > 0);
+    playbackClock.setNextChange(nextLineStart);
+  }, [playbackClock, nextLineStart]);
+
+  // The clock runs while the overlay shows: every frame for word timing, at
+  // each line start otherwise (the sender reports progress only every few
+  // seconds, so the line cannot wait for it).
+  useEffect(() => {
+    playbackClock.setEnabled(!isSettingsWindow && calculatedOpacity > 0, shouldAnimateKaraoke);
     return () => playbackClock.setEnabled(false);
   }, [playbackClock, isSettingsWindow, shouldAnimateKaraoke, calculatedOpacity]);
 

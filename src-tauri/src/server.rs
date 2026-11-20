@@ -14,7 +14,7 @@ use crate::{LyricsData, ProgressData};
 
 /// Version 2 adds named senders, side-effect-free status probes and
 /// announced heartbeats. Version 1 senders keep working unchanged.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 pub type UpdateSink = Arc<dyn Fn(Update) + Send + Sync>;
 

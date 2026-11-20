@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import KaraokeLyrics from "../src/KaraokeLyrics";
-import { PlaybackClock, createLineLookup, useActiveLineIndex } from "../src/playbackClock";
+import { PlaybackClock, createLineLookup, createNextLineStart, useActiveLineIndex } from "../src/playbackClock";
 import type { LyricLine } from "../src/types";
 import { FakeFrames } from "./fakeFrames";
 import { fixtures, positions, auxiliary } from "./karaokeFixtures";
@@ -286,3 +286,52 @@ test("pending glyph rows need no subscription and subscribe to a replacement clo
   assert.deepEqual(listeners, [0, 0]);
   assert.equal(frames.pending.size, 0);
 });
+
+test("line-timed lyrics move at each line start between the sender's progress reports", async () => {
+  const frames = new FakeFrames();
+  const clock = new PlaybackClock(frames);
+  const lines: LyricLine[] = [
+    { startTime: 1000, text: "one" }, { startTime: 1600, text: "two" },
+    { startTime: 2100, text: "three" }, { startTime: 5000, text: "four" },
+  ];
+  // The sender reports progress every two seconds; only this anchor arrives here.
+  clock.setNextChange(createNextLineStart(lines));
+  clock.setPlayback(900, true);
+  clock.setEnabled(true, false);
+  const seen: number[] = [];
+  function Harness() {
+    const lookup = useMemo(() => createLineLookup(lines), []);
+    const active = useActiveLineIndex(clock, lookup);
+    if (seen.at(-1) !== active) seen.push(active);
+    return null;
+  }
+  let renderer!: ReactTestRenderer;
+  await act(() => { renderer = create(<Harness />); });
+  assert.equal(frames.pending.size, 0, "no frame loop for line-timed lyrics");
+  assert.equal(frames.delays.size, 1, "one wake-up at the next line start");
+  await act(() => frames.advance(150));
+  await act(() => frames.advance(1000));
+  await act(() => frames.advance(1250));
+  assert.deepEqual(seen, [-1, 0, 1, 2], "each line on time, none skipped");
+  assert.ok(Math.abs(clock.getPosition() - 2104) < 1e-9, "woken just past the start");
+  // A report (here a seek) re-aims the wake-up.
+  await act(() => clock.setPlayback(4950, true));
+  assert.equal(frames.delays.size, 1);
+  await act(() => frames.advance(1310));
+  assert.deepEqual(seen, [-1, 0, 1, 2, 3]);
+  assert.equal(frames.delays.size, 0, "nothing to wake for after the last line");
+  await act(() => clock.setPlayback(1200, true));
+  await act(() => clock.setPlayback(1200, false));
+  assert.equal(frames.delays.size, 0, "paused, the clock sleeps");
+  await act(() => clock.setPlayback(1200, true));
+  assert.equal(frames.delays.size, 1);
+  // Word timing switches the same clock back to frames.
+  clock.setEnabled(true, true);
+  assert.equal(frames.delays.size, 0);
+  assert.equal(frames.pending.size, 1);
+  await act(() => renderer.unmount());
+  assert.equal(frames.pending.size + frames.delays.size, 0);
+  assert.equal(createNextLineStart([])(0), Infinity);
+  assert.equal(createNextLineStart(lines)(1600), 2100, "a line starting exactly now is not the next one");
+});
+
