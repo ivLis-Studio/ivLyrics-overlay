@@ -1,0 +1,181 @@
+ivLyrics Source-Available License 1.0
+=====================================
+
+Licensor: ivLis Studio (https://github.com/ivLis-Studio, me@ivl.is)
+
+This is a source-available license, not an open-source license. You may read,
+use, fork, and modify ivLyrics, and contribute your changes back. You may not
+redistribute ivLyrics or build other software from it.
+
+Material that NOTICE.md identifies as licensed under other terms, including
+code that remains under the GNU Lesser General Public License v2.1, is not
+covered by this license. See Section 4.
+
+
+1. Definitions
+
+"Software" means the source code, assets, documentation, data, and build files
+in the repository or package that includes this license, except Excluded
+Material.
+
+"Excluded Material" means files, or portions of files, that NOTICE.md
+identifies as licensed under other terms.
+
+"Services" means the servers, APIs, endpoints, databases, credentials, and
+keys that ivLis Studio operates or uses for ivLyrics, including those under
+the ivl.is domain.
+
+"Official Channels" means the distribution channels operated by ivLis Studio:
+repositories and releases under github.com/ivLis-Studio, the ivLyrics listing
+in the Spicetify Marketplace, apps that ivLis Studio publishes on the Apple App
+Store, the AltStore source that ivLis Studio publishes, and websites under the
+ivl.is domain.
+
+"Fork" means a copy of a repository of the Software made with a code-hosting
+platform's fork feature, or a clone of one, including changes made to it.
+
+"You" means the individual or legal entity exercising rights under this
+license.
+
+
+2. Permissions
+
+If you comply with this license, ivLis Studio grants you a worldwide,
+royalty-free, non-exclusive, non-transferable, non-sublicensable copyright
+license to:
+
+(a) view, read, and study the Software;
+
+(b) download, install, and run copies of the Software obtained from Official
+    Channels;
+
+(c) create a Fork, modify it, and build and run modified versions on devices
+    you own or control, for your own use, for testing, or to prepare
+    contributions; and
+
+(d) keep your Fork publicly visible on the platform where you created it, and
+    submit changes to ivLis Studio, for example as pull requests.
+
+
+3. Restrictions
+
+Except as Section 2 expressly allows, you may not:
+
+(a) Redistribute. Distribute, publish, sell, rent, lease, sublicense, or
+    otherwise make the Software or a modified version available to others, in
+    source or compiled form. This includes packaged releases, installers, app
+    stores, extension or theme marketplaces, package registries, mirrors,
+    download sites, and bundles with other software. A Fork kept under Section
+    2(d) is allowed, but it must not offer releases, packaged builds,
+    installers, or marketplace listings.
+
+(b) Incorporate. Copy, extract, or incorporate any part of the Software,
+    modified or not, into other software, products, or services. This includes
+    code that communicates with the Services, request formats and protocols,
+    endpoint addresses, signing logic, keys, tokens, and data formats.
+
+(c) Misuse the Services. Access the Services from anything other than the
+    Software or a Fork used under this license; reuse ivLyrics credentials,
+    API keys, or tokens elsewhere; circumvent authentication, rate limits,
+    obfuscation, or other access controls; or scrape, mirror, or bulk-download
+    data from the Services.
+
+(d) Remove notices. Remove, alter, or obscure this license, NOTICE.md, or any
+    copyright, license, or attribution notice in the Software.
+
+(e) Infringe. Use the Software or the Services to infringe, or to help others
+    infringe, any third party's rights, including copyrights in lyrics,
+    recordings, artwork, and videos.
+
+
+4. Excluded Material and the LGPL
+
+This license does not apply to Excluded Material, which remains available
+under the terms that NOTICE.md identifies. In particular, code derived from
+Spicetify's lyrics-plus, and code that others contributed while a repository
+was licensed under the GNU Lesser General Public License v2.1, remain under
+LGPL-2.1. Nothing in this license limits a right that LGPL-2.1 or another
+license grants for Excluded Material. Where the Software is combined with
+LGPL-2.1 material, you may also modify the Software for your own use and
+reverse engineer it to debug such modifications.
+
+
+5. Lyrics and Other Third-Party Content
+
+(a) The Software does not include lyrics, translations of lyrics, recordings,
+    album artwork, videos, or other content owned by third parties
+    ("Third-Party Content"). This license grants no rights in Third-Party
+    Content.
+
+(b) At your direction, the Software retrieves Third-Party Content from
+    third-party services and displays it on your device for your personal,
+    non-commercial use. ivLis Studio does not own, control, endorse, or
+    warrant Third-Party Content or those services.
+
+(c) You are responsible for complying with copyright law and with the terms of
+    the services you use, including Spotify, YouTube, and lyrics providers. You
+    may not use the Software to reproduce, publicly display or perform,
+    broadcast, sell, or redistribute Third-Party Content except as the law and
+    those terms allow.
+
+(d) Timing data, video references, and other material you submit to the
+    Services must be material you have the right to submit. You grant ivLis
+    Studio a worldwide, royalty-free, perpetual license to host, reproduce,
+    modify, display, and distribute it as part of ivLyrics.
+
+(e) Rights holders may request removal of content stored on the Services by
+    contacting me@ivl.is.
+
+
+6. Contributions
+
+If you submit a contribution, such as a pull request or patch, you confirm that
+you have the right to submit it. You grant ivLis Studio a perpetual, worldwide,
+non-exclusive, royalty-free, irrevocable license to use, reproduce, modify,
+distribute, sublicense, and relicense the contribution as part of ivLyrics and
+related ivLis Studio projects. You keep the copyright in your contribution.
+ivLis Studio has no obligation to accept or use a contribution.
+
+
+7. Trademarks
+
+This license grants no rights in the ivLyrics or ivLis Studio names, logos, or
+icons, except to identify the origin of the Software and to keep the notices
+that Section 3(d) requires. A Fork must not present itself as ivLyrics or as an
+official ivLis Studio release.
+
+
+8. Termination
+
+If you violate this license, your license ends automatically. If ivLis Studio
+notifies you of a violation for the first time and you stop all violations
+within 30 days of that notice, your license is reinstated. Otherwise, it ends
+permanently. Sections 5(d), 6, 9, and 10 survive termination.
+
+
+9. No Warranty and Limitation of Liability
+
+THE SOFTWARE AND THE SERVICES ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED
+BY LAW, IVLIS STUDIO AND CONTRIBUTORS ARE NOT LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY ARISING FROM OR CONNECTED WITH THE SOFTWARE, THE SERVICES, OR
+THIRD-PARTY CONTENT.
+
+
+10. General
+
+(a) Copies of the Software that ivLis Studio published under a different
+    license remain available under that license.
+
+(b) ivLis Studio may publish new versions of this license. Each copy of the
+    Software is governed by the license version included with it.
+
+(c) If a provision of this license is unenforceable, the remaining provisions
+    stay in effect.
+
+(d) ivLis Studio reserves all rights that this license does not expressly
+    grant.
+
+(e) This license is governed by the laws of the Republic of Korea, without
+    regard to its conflict-of-laws rules.

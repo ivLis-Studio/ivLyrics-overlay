@@ -104,6 +104,8 @@ Contact us on [Discord](https://discord.gg/2fu36fUzdE) or [GitHub Issues](https:
 
 This app uses [Tauri](https://tauri.app/) and [React](https://react.dev/).
 
+This repository is licensed under the [ivLyrics Source-Available License 1.0](LICENSE). You may read the source, fork it to make changes, and contribute through pull requests, but you may not redistribute it outside official channels or put its code into other software. [NOTICE.md](NOTICE.md) lists third-party notices.
+
 <details>
 <summary>Build it yourself or contribute</summary>
 

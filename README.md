@@ -104,6 +104,8 @@ PC용 ivLyrics 외의 프로그램도 같은 로컬 연결로 가사를 보낼 �
 
 이 앱은 [Tauri](https://tauri.app/)와 [React](https://react.dev/)를 사용합니다.
 
+이 저장소는 [ivLyrics Source-Available License 1.0](LICENSE)을 따릅니다. 소스를 읽고 포크해서 고쳐 보거나 PR로 기여할 수 있지만, 공식 채널 밖에서 재배포하거나 코드를 다른 프로그램에 넣을 수는 없습니다. 법적 효력은 영문 LICENSE 전문을 기준으로 하며, 외부 구성요소 고지는 [NOTICE.md](NOTICE.md)에 있습니다.
+
 <details>
 <summary>직접 빌드하거나 기여하고 싶어요</summary>
 
