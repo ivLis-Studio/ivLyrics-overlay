@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -23,6 +23,9 @@ interface GitHubRelease {
 const GITHUB_OWNER = "ivLis-Studio";
 const GITHUB_REPO = "ivLyrics-overlay";
 const CURRENT_VERSION = __APP_VERSION__;
+// navigator.platform is deprecated but still the most reliable synchronous
+// platform check in a Tauri WebView on Linux.
+const IS_LINUX = /linux/i.test(navigator.platform) || /linux/i.test(navigator.userAgent);
 // How long the overlay takes to fade out or in.
 const OVERLAY_FADE_MS = 300;
 import "./App.css";
@@ -916,15 +919,26 @@ function App() {
     const platform = navigator.platform.toLowerCase();
     const isMac = platform.includes("mac");
     const isWindows = platform.includes("win");
+    const isArm = /aarch64|arm64/i.test(navigator.userAgent);
 
     for (const asset of assets) {
       const name = asset.name.toLowerCase();
+      if (IS_LINUX && name.endsWith(".appimage")) {
+        // Prefer the AppImage for this CPU, but accept the only one available.
+        const armAsset = name.includes("aarch64") || name.includes("arm64");
+        if (armAsset === isArm) return asset;
+      }
       if (isWindows && (name.endsWith(".exe") || name.includes("windows") && name.endsWith(".zip"))) {
         return asset;
       }
       if (isMac && (name.endsWith(".dmg") || name.endsWith(".app.tar.gz"))) {
         return asset;
       }
+    }
+
+    if (IS_LINUX) {
+      const appImage = assets.find((asset) => asset.name.toLowerCase().endsWith(".appimage"));
+      return appImage || null;
     }
 
     // Fallback: return first exe or dmg found
@@ -977,7 +991,9 @@ function App() {
           }
 
           setUpdateStatus("githubFallback");
-          if (!manual) setUpdateModalOpen(true);
+          // On Linux the portable build is downloaded manually; do not open a
+          // modal on every launch just because upstream published a release.
+          if (!manual && !IS_LINUX) setUpdateModalOpen(true);
         } else if (manual) {
           setUpdateStatus("upToDate");
         }
@@ -1652,6 +1668,8 @@ function App() {
               {updateStatus === "checking" && t.checking}
               {updateStatus === "available" &&
                 t.updateAvailable.replace("{version}", updateVersion)}
+              {updateStatus === "githubFallback" &&
+                t.updateAvailable.replace("{version}", updateVersion)}
               {updateStatus === "upToDate" && t.upToDate}
               {updateStatus === "downloading" && t.downloading}
               {updateStatus === "error" && `${t.errorParams}: ${updateError}`}
@@ -1667,6 +1685,35 @@ function App() {
                   </button>
                   <button className="update-btn primary" onClick={installUpdate}>
                     {t.install}
+                  </button>
+                </>
+              )}
+              {updateStatus === "githubFallback" && (
+                <>
+                  <button
+                    className="update-btn secondary"
+                    onClick={() => setUpdateModalOpen(false)}
+                  >
+                    {t.cancel}
+                  </button>
+                  {githubDownloadUrl && (
+                    <button
+                      className="update-btn primary"
+                      onClick={() => openUrl(githubDownloadUrl)}
+                    >
+                      {t.directDownload}
+                    </button>
+                  )}
+                  <button
+                    className="update-btn secondary"
+                    onClick={() =>
+                      openUrl(
+                        githubReleaseUrl ||
+                          `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
+                      )
+                    }
+                  >
+                    {t.downloadPage}
                   </button>
                 </>
               )}

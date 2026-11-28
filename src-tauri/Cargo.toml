@@ -1,7 +1,7 @@
 [package]
-name = "lyrics-plus-overlay"
+name = "ivlyrics-overlay"
 version = "1.3.2"
-description = "Lyrics Plus Overlay - Display lyrics from Spotify"
+description = "ivLyrics Overlay - Synced lyrics overlay for Spotify on Linux"
 authors = ["ivLis"]
 edition = "2021"
 
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "lyrics_plus_overlay_lib"
+name = "ivlyrics_overlay_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -34,6 +34,10 @@ tauri-plugin-single-instance = "=2.3.7"
 font-kit = "0.14.3"
 image = "0.25"
 dirs = "5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# X11/XWayland pointer tracking, click-through state and full-screen detection.
+x11rb = "0.13"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }

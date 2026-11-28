@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ivLyrics Overlay
+GenericName=Lyrics Overlay
+Comment=Synced lyrics overlay for Spotify
+Exec=ivlyrics-overlay
+Icon=ivlyrics-overlay
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=lyrics;spotify;overlay;karaoke;
+StartupNotify=false
+StartupWMClass=ivlyrics-overlay

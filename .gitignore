@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Linux packaging output
+artifacts/
+packaging/src
+packaging/pkg
+packaging/*.pkg.tar.*
+packaging/*.tar.gz
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

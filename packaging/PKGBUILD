@@ -1,0 +1,62 @@
+# Maintainer: ivLyrics Overlay Linux port
+# Build locally with packaging/build-arch.sh. The script creates the source
+# tarball expected by this PKGBUILD; a published package should replace
+# sha256sums=('SKIP') with the real checksum.
+pkgname=ivlyrics-overlay
+pkgver=1.3.2
+pkgrel=1
+pkgdesc='Synced lyrics overlay for Spotify, using Tauri, React and Rust'
+arch=('x86_64' 'aarch64')
+url='https://github.com/ivLis-Studio/ivLyrics-overlay'
+license=('custom')
+depends=(
+  'gtk3'
+  'webkit2gtk-4.1'
+  'libsoup3'
+  'libayatana-appindicator'
+  'librsvg'
+  'fontconfig'
+)
+makedepends=('nodejs' 'npm' 'rust' 'pkgconf')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+
+  # makepkg exports -march=native/-Wl,--as-needed and rust.conf adds
+  # "-C target-cpu=native". ring's prebuilt assembly does not link with that
+  # combination (undefined ring_core_* symbols), so build with the same clean
+  # flags the upstream release build uses.
+  unset CFLAGS CXXFLAGS LDFLAGS RUSTFLAGS
+
+  # package-lock.json pins the WebView frontend dependencies.
+  npm ci --no-audit --no-fund
+
+  # The Tauri CLI matters here: it sets the production environment and embeds
+  # dist/ into the binary. A bare "cargo build --release" keeps devUrl and the
+  # installed app would try to reach the Vite dev server on localhost:1420.
+  npm run tauri build -- --no-bundle
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  install -Dm755 src-tauri/target/release/ivlyrics-overlay \
+    "$pkgdir/usr/bin/ivlyrics-overlay"
+
+  install -Dm644 packaging/ivlyrics-overlay.desktop \
+    "$pkgdir/usr/share/applications/ivlyrics-overlay.desktop"
+
+  for size in 128 256 512; do
+    case "$size" in
+      128) icon=src-tauri/icons/128x128.png ;;
+      256) icon=src-tauri/icons/128x128@2x.png ;;
+      512) icon=src-tauri/icons/icon.png ;;
+    esac
+    install -Dm644 "$icon" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/ivlyrics-overlay.png"
+  done
+
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

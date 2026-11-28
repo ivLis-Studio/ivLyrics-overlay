@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+#[cfg(target_os = "macos")]
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 mod fullscreen;
+#[cfg(target_os = "linux")]
+mod linux_overlay;
 mod polling;
 mod server;
 mod sources;
@@ -72,7 +76,20 @@ async fn set_overlay_hidden(
             refresh_windows_overlay_transparency(&window);
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "overlay window not found".to_string())?;
+        if hidden {
+            window.hide().map_err(|e| e.to_string())?;
+        } else {
+            // show() maps the window without taking focus from the app below.
+            window.show().map_err(|e| e.to_string())?;
+            let _ = window.set_always_on_top(true);
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let _ = app;
     Ok(())
 }
@@ -476,15 +493,21 @@ async fn start_drag(window: tauri::Window) -> Result<(), String> {
 
 // Tauri command to set ignore cursor events
 #[tauri::command]
-async fn set_ignore_cursor_events(window: tauri::Window, ignore: bool) -> Result<(), String> {
+async fn set_ignore_cursor_events(
+    window: tauri::Window,
+    state: tauri::State<'_, Arc<Mutex<AppLockState>>>,
+    ignore: bool,
+) -> Result<(), String> {
     window
         .set_ignore_cursor_events(ignore)
         .map_err(|e| e.to_string())?;
+    if let Ok(mut s) = state.lock() {
+        s.is_interactive = !ignore;
+    }
     refresh_windows_overlay_transparency(&window);
     Ok(())
 }
 
-// Tauri command to update lock state from frontend
 // Tauri command to update lock state from frontend
 #[tauri::command]
 async fn set_lock_state(
@@ -806,6 +829,11 @@ fn refresh_windows_overlay_transparency<R: Runtime, M: Manager<R>>(manager: &M) 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Select XWayland before Tauri initialises GTK. This must happen before any
+    // window or tray is created.
+    #[cfg(target_os = "linux")]
+    linux_overlay::prepare_display();
+
     // WebView2 paints an opaque default background before the runtime API can
     // apply the transparent color. Set its one-shot default before Tauri creates
     // any webview so Windows never exposes that host-colored startup surface.
@@ -865,6 +893,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build()) // Updater Init
         .plugin(tauri_plugin_window_state::Builder::default().build()) // Window State Persistence
+        .plugin(tauri_plugin_process::init()) // Relaunch after an update
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_deep_link::init()) // Deep Link / URL Scheme
         .manage(lock_state.clone()) // Manage properly in Tauri state
@@ -896,7 +925,7 @@ pub fn run() {
                 });
 
 
-            let _tray = TrayIconBuilder::with_id("main-tray")
+            let tray = TrayIconBuilder::with_id("main-tray")
                 .icon(tray_icon)
                 .menu(&menu)
                 .show_menu_on_left_click(true)
@@ -933,7 +962,13 @@ pub fn run() {
                         _ => {}
                     }
                 })
-                .build(app)?;
+                .build(app);
+            // A Linux desktop without an AppIndicator host cannot show a tray
+            // icon. The overlay itself still works, so treat the tray as optional
+            // instead of refusing to start.
+            if let Err(error) = tray {
+                eprintln!("Failed to create the tray icon: {error}");
+            }
 
 
             // macOS Specific Configuration
@@ -986,6 +1021,12 @@ pub fn run() {
             // Check if main window is off-screen and reset position if necessary
             if let Some(window) = app.get_webview_window("main") {
                 reset_window_if_offscreen(&window, 100, 100);
+                #[cfg(target_os = "linux")]
+                {
+                    // Start click-through immediately. The frontend repeats this
+                    // once the persisted lock setting is loaded.
+                    let _ = window.set_ignore_cursor_events(true);
+                }
             }
             refresh_windows_overlay_transparency(app);
 
@@ -1020,6 +1061,10 @@ pub fn run() {
 
                 std::thread::spawn(move || {
                     let mut was_hovering = false;
+                    // Auto-lock must not immediately start another hover unlock
+                    // while the pointer is still resting on the overlay. Re-arm
+                    // only after the pointer leaves and enters again.
+                    let mut hover_armed = true;
                     let mut last_mouse_x = 0;
                     let mut last_mouse_y = 0;
                     let mut hover_idle = IdleTimer::default();
@@ -1031,7 +1076,18 @@ pub fn run() {
                     let mut last_foreground: isize = 0;
                     #[cfg(target_os = "windows")]
                     let mut last_fullscreen_check = Instant::now();
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(target_os = "linux")]
+                    let linux_x11 = linux_overlay::X11State::connect();
+                    if linux_x11.is_none() {
+                        eprintln!(
+                            "ivLyrics Overlay: X11 unavailable; click-through and fullscreen detection are disabled."
+                        );
+                    }
+                    #[cfg(target_os = "linux")]
+                    let mut last_active_window: Option<u32> = None;
+                    #[cfg(target_os = "linux")]
+                    let mut last_fullscreen_check = Instant::now();
+                    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
                     let _ = &loop_visibility;
                     let mut last_poll = Instant::now();
                     let mut last_unlock_progress = 0.0;
@@ -1041,6 +1097,54 @@ pub fn run() {
                         std::thread::sleep(poll_interval(locked, was_hovering));
                         let elapsed = last_poll.elapsed();
                         last_poll = Instant::now();
+
+                        // X11 has no foreground-window callback. Poll the active window
+                        // (cheap) and re-check full-screen once a second, matching the
+                        // Windows backend's cadence.
+                        #[cfg(target_os = "linux")]
+                        {
+                            let active_window = linux_x11
+                                .as_ref()
+                                .and_then(|x11| x11.active_window());
+                            if active_window != last_active_window
+                                || last_fullscreen_check.elapsed() >= Duration::from_secs(1)
+                            {
+                                last_active_window = active_window;
+                                last_fullscreen_check = Instant::now();
+                                let monitor = loop_app_handle
+                                    .get_webview_window("main")
+                                    .and_then(|window| {
+                                        window
+                                            .current_monitor()
+                                            .ok()
+                                            .flatten()
+                                            .or_else(|| window.primary_monitor().ok().flatten())
+                                    })
+                                    .map(|monitor| {
+                                        let position = monitor.position();
+                                        let size = monitor.size();
+                                        (
+                                            position.x,
+                                            position.y,
+                                            position.x + size.width as i32,
+                                            position.y + size.height as i32,
+                                        )
+                                    });
+                                let active = match (&linux_x11, monitor) {
+                                    (Some(x11), Some(monitor)) => {
+                                        x11.is_fullscreen_on(monitor)
+                                    }
+                                    _ => false,
+                                };
+                                if loop_visibility
+                                    .fullscreen_app
+                                    .swap(active, Ordering::Relaxed)
+                                    != active
+                                {
+                                    let _ = loop_app_handle.emit("fullscreen-app", active);
+                                }
+                            }
+                        }
 
                         // Opening the Start menu or a taskbar flyout raises the taskbar over
                         // every topmost window, and it stayed above the overlay until the
@@ -1158,11 +1262,66 @@ pub fn run() {
                             }
                         }
 
+                        // XWayland exposes the global pointer and lets us toggle the
+                        // window's input shape. Skip this while the overlay is hidden,
+                        // so an invisible window cannot be unlocked by hovering where it
+                        // used to be.
+                        #[cfg(target_os = "linux")]
+                        {
+                            if !loop_visibility.hidden.load(Ordering::Relaxed) {
+                                if let Some(x11) = &linux_x11 {
+                                    if let Some((pointer_x, pointer_y)) = x11.pointer() {
+                                        if let Some(window) =
+                                            loop_app_handle.get_webview_window("main")
+                                        {
+                                            if let (Ok(win_pos), Ok(win_size)) = (
+                                                window.outer_position(),
+                                                window.inner_size(),
+                                            ) {
+                                                let rel_x = pointer_x - win_pos.x;
+                                                let rel_y = pointer_y - win_pos.y;
+
+                                                current_x = pointer_x;
+                                                current_y = pointer_y;
+                                                current_window_position =
+                                                    Some((win_pos.x, win_pos.y));
+                                                current_hovering = rel_x >= 0
+                                                    && rel_x < win_size.width as i32
+                                                    && rel_y >= 0
+                                                    && rel_y < win_size.height as i32;
+                                                let change = loop_lock_state.lock().ok().and_then(
+                                                    |mut state| {
+                                                        if state.is_locked && state.is_interactive {
+                                                            state.is_interactive = false;
+                                                            Some(true)
+                                                        } else if !state.is_locked
+                                                            && !state.is_interactive
+                                                        {
+                                                            state.is_interactive = true;
+                                                            Some(false)
+                                                        } else {
+                                                            None
+                                                        }
+                                                    },
+                                                );
+                                                if let Some(ignore) = change {
+                                                    let _ = window
+                                                        .set_ignore_cursor_events(ignore);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if current_hovering != was_hovering {
                             was_hovering = current_hovering;
                             let _ = loop_app_handle.emit("overlay-hover", current_hovering);
 
-                            if !current_hovering {
+                            if current_hovering {
+                                hover_armed = true;
+                            } else {
                                 hover_idle.reset();
                                 if last_unlock_progress != 0.0 {
                                     last_unlock_progress = 0.0;
@@ -1183,7 +1342,7 @@ pub fn run() {
                             })
                             .unwrap_or((true, 1.2, 3.0, true));
 
-                        if current_hovering && is_locked && hover_unlock_enabled {
+                        if current_hovering && hover_armed && is_locked && hover_unlock_enabled {
                             let dist_sq =
                                 (current_x - last_mouse_x).pow(2) + (current_y - last_mouse_y).pow(2);
 
@@ -1230,6 +1389,9 @@ pub fn run() {
                                     if let Ok(mut state) = loop_lock_state.lock() {
                                         state.is_locked = true;
                                         let _ = loop_app_handle.emit("lock-state-update", true);
+                                    }
+                                    if current_hovering {
+                                        hover_armed = false;
                                     }
                                     auto_lock_idle.reset();
                                 }
