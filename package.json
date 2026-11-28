@@ -1,5 +1,5 @@
 {
-  "name": "lyrics-plus-overlay",
+  "name": "ivlyrics-overlay",
   "private": true,
   "version": "1.3.2",
   "type": "module",
@@ -8,12 +8,15 @@
     "dev:web": "vite",
     "build": "tsc && vite build",
     "build:app": "tauri build",
+    "build:linux": "bash packaging/build-appimage.sh",
+    "package:arch": "bash packaging/build-arch.sh",
     "build:web": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "tsx --tsconfig tests/tsconfig.json --test tests/*.test.tsx"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-free": "^6.7.2",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2",
